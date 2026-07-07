@@ -1,4 +1,4 @@
-#慣れ分析
+# 慣れ分析
 import pandas as pd
 
 def load_data(path):
@@ -18,23 +18,34 @@ def calc_stay(df, unit):
 
 
 def calc_familiarity(series):
+    if len(series) < 2:
+        return 0.0
     return (series.iloc[-1] - series.iloc[0]) / series.iloc[0]
 
 
-def main():
-    df = load_data("animal_log.csv")
+# ★FastAPIから呼び出す関数
+def calc_familiarity_scores(df):
 
     daily = calc_stay(df, "date")
     weekly = calc_stay(df, "week")
     monthly = calc_stay(df, "month")
     yearly = calc_stay(df, "year")
 
-    print("慣れ度（デモ）:", calc_familiarity(daily))
+    return (
+        calc_familiarity(daily),
+        calc_familiarity(weekly),
+        calc_familiarity(monthly),
+        calc_familiarity(yearly),
+    )
 
-    print("慣れ度（週）:", calc_familiarity(weekly))
-    print("慣れ度（月）:", calc_familiarity(monthly))
-    print("慣れ度（年）:", calc_familiarity(yearly))
 
-
+# 単体実行用
 if __name__ == "__main__":
-    main()
+    df = load_data("animal_log.csv")
+
+    daily, weekly, monthly, yearly = calc_familiarity_scores(df)
+
+    print("慣れ度（日）:", daily)
+    print("慣れ度（週）:", weekly)
+    print("慣れ度（月）:", monthly)
+    print("慣れ度（年）:", yearly)
