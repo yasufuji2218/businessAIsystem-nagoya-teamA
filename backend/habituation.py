@@ -26,6 +26,16 @@ def calc_familiarity(series):
 # ★FastAPIから呼び出す関数
 def calc_familiarity_scores(df):
 
+    df["timestamp"] = pd.to_datetime(df["timestamp"])
+
+    df["date"] = df["timestamp"].dt.date
+
+    df["week"] = df["timestamp"].dt.isocalendar().week
+
+    df["month"] = df["timestamp"].dt.month
+
+    df["year"] = df["timestamp"].dt.year
+
     daily = calc_stay(df, "date")
     weekly = calc_stay(df, "week")
     monthly = calc_stay(df, "month")
