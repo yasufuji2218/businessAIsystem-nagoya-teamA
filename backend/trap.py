@@ -45,7 +45,7 @@ def calc_trap_score(df):
     return trap_score, level
 
 
-df = pd.read_csv("animal_log.csv")
+df = pd.read_csv("detections.csv")
 
 trap_score, level = calc_trap_score(df)
 

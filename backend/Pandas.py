@@ -1,7 +1,7 @@
 #Pandasテスト
 import pandas as pd
 
-df = pd.read_csv("animal_log.csv")
+df = pd.read_csv("detections.csv")
 
 
 print(df)

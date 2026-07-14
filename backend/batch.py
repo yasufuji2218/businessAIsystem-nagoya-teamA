@@ -13,7 +13,7 @@ from save_log import save_yearly_analysis
 def run_daily_batch():
 
     # CSV読み込み
-    df = pd.read_csv("animal_log.csv")
+    df = pd.read_csv("detections.csv")
 
     # timestampを日時型に変換
     df["timestamp"] = pd.to_datetime(df["timestamp"])
@@ -56,7 +56,7 @@ def run_daily_batch():
 
 def run_weekly_batch():
 
-    df = pd.read_csv("animal_log.csv")
+    df = pd.read_csv("detections.csv")
 
     df["timestamp"] = pd.to_datetime(df["timestamp"])
 
@@ -106,7 +106,7 @@ def run_weekly_batch():
 
 def run_monthly_batch():
 
-    df = pd.read_csv("animal_log.csv")
+    df = pd.read_csv("detections.csv")
 
     df["timestamp"] = pd.to_datetime(df["timestamp"])
 
@@ -181,7 +181,7 @@ def run_monthly_batch():
 
 def run_yearly_batch():
 
-    df = pd.read_csv("animal_log.csv")
+    df = pd.read_csv("detections.csv")
 
     df["timestamp"] = pd.to_datetime(df["timestamp"])
 

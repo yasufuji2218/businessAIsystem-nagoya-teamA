@@ -13,7 +13,7 @@ def root():
 
 @app.get("/appearance")
 def appearance():
-    df = pd.read_csv("animal_log.csv")
+    df = pd.read_csv("detections.csv")
 
     peak_hour, peak_count, hour_count = calc_peak(df)
 
@@ -26,7 +26,7 @@ def appearance():
 @app.get("/habituation")
 def habituation():
 
-    df = load_data("animal_log.csv")
+    df = load_data("detections.csv")
 
     daily, weekly, monthly, yearly = calc_familiarity_scores(df)
 
@@ -41,7 +41,7 @@ def habituation():
 @app.get("/trap")
 def trap():
 
-    df = pd.read_csv("animal_log.csv")
+    df = pd.read_csv("detections.csv")
 
     trap_score, level = calc_trap_score(df)
 

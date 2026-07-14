@@ -51,7 +51,7 @@ def calc_familiarity_scores(df):
 
 # 単体実行用
 if __name__ == "__main__":
-    df = load_data("animal_log.csv")
+    df = load_data("")
 
     daily, weekly, monthly, yearly = calc_familiarity_scores(df)
 

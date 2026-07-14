@@ -19,7 +19,7 @@ def calc_peak(df):
 
 # 単体実行時のみ動作確認
 if __name__ == "__main__":
-    df = pd.read_csv("animal_log.csv")
+    df = pd.read_csv("detections.csv")
 
     peak_hour, peak_count, hour_count = calc_peak(df)
 
