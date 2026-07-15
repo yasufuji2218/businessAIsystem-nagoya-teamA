@@ -26,10 +26,14 @@
 
 
 # 2. 自動生成されるファイル・ログ（「*」を使って拡張子でまとめて指定）
-
+frontend/dist/
+frontend/test-results/
+frontend/playwright-report/
+frontend/blob-report/
 
 # 3. OS特有の不要なファイル
-
+*:Zone.Identifier
 
 # 4. 容量の大きいライブラリなどのフォルダ全体（末尾に / をつける）
+node_modules/
 
