@@ -161,3 +161,79 @@ project-root/
 ├── .gitignore     # Gitの管理から除外するファイルの設定
 └── README.md      # このファイル
 ```
+
+## YOLO動画解析バックエンド
+
+### セットアップと起動
+
+プロジェクトルートで仮想環境を作成し、`src/requirements.txt` をインストールします。
+
+```powershell
+py -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r .\src\requirements.txt
+.\.venv\Scripts\python.exe -m uvicorn backend.api:app --app-dir .\src --host 127.0.0.1 --port 8000 --workers 1
+```
+
+起動後は `http://127.0.0.1:8000/docs` でAPI仕様を確認できます。既存APIは `/`、`/appearance`、`/habituation`、`/trap` です。
+
+### 動画解析ジョブAPI
+
+MP4、撮影開始日時、カメラIDなどをmultipart formで送信します。応答はHTTP 202で、解析ジョブIDと状態確認URLを返します。
+
+```powershell
+curl.exe -X POST "http://127.0.0.1:8000/video-analysis/jobs" `
+  -F "video=@src/inputs/videos/test_video.mp4;type=video/mp4" `
+  -F "start_timestamp=2026-07-21 10:00:00" `
+  -F "device_id=CAM001" `
+  -F "action=なし" `
+  -F "confidence=0.25" `
+  -F "image_size=320" `
+  -F "device=cpu" `
+  -F "gap_seconds=1.0"
+```
+
+返されたIDで `queued`、`running`、`completed`、`failed` の状態を確認します。
+
+```powershell
+curl.exe "http://127.0.0.1:8000/video-analysis/jobs/<job_id>"
+```
+
+完了すると、検出付き動画・フレーム集計CSV・追跡検出CSV・集計JSONを `src/outputs/video_analysis/jobs/<job_id>/` に保存します。`boar` と `monkey` の検出は `track_id` と連続検出区間ごとにイベント化し、既存6列の `src/backend/detections.csv` へ安全に追記します。
+
+### CLIとPython関数
+
+動画解析だけをCLIで実行できます。
+
+```powershell
+.\.venv\Scripts\python.exe .\src\scripts\analyze_video.py `
+  --source .\src\inputs\videos\test_video.mp4 `
+  --model .\src\outputs\training\animal_demo\weights\best.pt `
+  --conf 0.25 --imgsz 320 --device cpu
+```
+
+解析CSVをバックエンドイベントへ変換・追記する場合は次を実行します。
+
+```powershell
+.\.venv\Scripts\python.exe .\src\scripts\merge_detections.py `
+  --source .\src\outputs\video_analysis\test_video\detections.csv `
+  --start-timestamp "2026-07-21 10:00:00" `
+  --device-id CAM001 --action なし --gap-seconds 1.0
+```
+
+Pythonからは `scripts.analyze_video.analyze_video(...)` と `scripts.merge_detections.merge_detections(...)` を呼び出せます。`src` をPythonのモジュール検索パスに含めてください。
+
+### 制限事項
+
+- ジョブ状態はメモリ上に保持されるため、API再起動後は取得できません。複数worker間でも共有されないため、現在は必ず `--workers 1` で起動してください。
+- 同一プロセス内のYOLO解析はメモリ競合を避けるため1件ずつ実行します。CPU実行では長い動画の処理に時間がかかります。
+- アップロード上限は2 GiBです。アップロード動画と解析成果物は自動削除されません。運用時は認証、容量監視、保存期間管理を別途追加してください。
+- 既定モデルは `src/outputs/training/animal_demo/weights/best.pt` です。イベント変換対象はクラス名が `boar` または `monkey` の検出に限られ、その他のクラスは解析成果物には残りますがバックエンドCSVへは追加されません。
+- `track_id` は1本の動画内でのみ有効です。動画をまたぐ同一個体判定は行いません。
+- CLIの既定出力先は入力動画のstem名で決まるため、同名動画を再解析すると同じ出力先を使用します。保存が必要な場合は `--output-dir` で別ディレクトリを指定してください。
+
+### Git管理と実行時CSV
+
+- バックエンド実行に必要な学習済みモデルは `src/outputs/training/animal_demo/weights/best.pt` だけをGit管理します。
+- 入力動画、動画解析結果、学習グラフ、`last.pt`、`src/yolo11n.pt`、バックアップCSVはローカル生成物としてGit管理しません。
+- `src/backend/detections.csv` と `*_analysis.csv` は実行時データのためGit管理しません。存在しない場合は、初回読み込みまたは保存時に必要なヘッダー付きで自動生成されます。
+- 動作確認用データは `src/backend/detections_sample.csv` に分離し、実運用CSVへ自動混入しません。
