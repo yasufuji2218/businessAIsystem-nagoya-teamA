@@ -1,0 +1,5 @@
+﻿year,device_id,total_count,monkey_count,boar_count,trap_score,rank
+2023,camera_001,1210,510,700,69,B
+2024,camera_001,1385,590,795,75,B
+2025,camera_001,1500,650,850,81,A
+2026,camera_001,1800,650,1150,90,A
