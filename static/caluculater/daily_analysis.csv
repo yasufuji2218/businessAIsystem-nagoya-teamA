@@ -1,0 +1,15 @@
+﻿date,animal,total_count,average_stay_time,alert_level
+2026-07-14,boar,3,53.0,medium
+2026-07-14,monkey,3,65.3,medium
+2026-07-15,boar,3,82.3,medium
+2026-07-15,monkey,4,58.2,medium
+2026-07-16,boar,2,40.5,low
+2026-07-16,monkey,2,53.0,low
+2026-07-17,boar,4,47.0,medium
+2026-07-17,monkey,1,20.0,low
+2026-07-18,boar,5,69.6,medium
+2026-07-18,monkey,3,62.7,medium
+2026-07-19,boar,6,79.0,high
+2026-07-19,monkey,11,80.6,high
+2026-07-20,boar,5,70.2,medium
+2026-07-20,monkey,4,59.5,medium

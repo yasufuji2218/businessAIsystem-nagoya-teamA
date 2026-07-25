@@ -23,17 +23,39 @@
 #----------------------------------------------------------------------------------------------------------------------------#
 #   以下に対象ファイルを記載してください
 # 1. セキュリティ関連（絶対にアップロードしないファイル）
-
-
+*.venv/bin/activate
+.venv/
 # 2. 自動生成されるファイル・ログ（「*」を使って拡張子でまとめて指定）
 frontend/dist/
 frontend/test-results/
 frontend/playwright-report/
 frontend/blob-report/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.lock
+src/inputs/video_jobs/
+src/outputs/video_analysis/jobs/
+Ultralytics/
+src/inputs/
+src/outputs/video_analysis/
+src/backend/detections.csv
+src/backend/*_analysis.csv
+src/backend/*_backup.csv
+*.mp4
+last.pt
+yolo11n.pt
+
+# 学習生成物は除外し、バックエンド実行に必要なbest.ptだけを管理する
+src/outputs/training/**
+!src/outputs/training/**/
+!src/outputs/training/animal_demo/weights/best.pt
 
 # 3. OS特有の不要なファイル
 *:Zone.Identifier
 
 # 4. 容量の大きいライブラリなどのフォルダ全体（末尾に / をつける）
 node_modules/
+
+.venv
 
