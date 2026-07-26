@@ -237,3 +237,325 @@ Pythonからは `scripts.analyze_video.analyze_video(...)` と `scripts.merge_de
 - 入力動画、動画解析結果、学習グラフ、`last.pt`、`src/yolo11n.pt`、バックアップCSVはローカル生成物としてGit管理しません。
 - `src/backend/detections.csv` と `*_analysis.csv` は実行時データのためGit管理しません。存在しない場合は、初回読み込みまたは保存時に必要なヘッダー付きで自動生成されます。
 - 動作確認用データは `src/backend/detections_sample.csv` に分離し、実運用CSVへ自動混入しません。
+
+## 通知システムを含む統合実行手順（PowerShell 3画面）
+
+この手順では、FastAPI、通知Launcher、動画解析ジョブ投入を別々のPowerShellで実行します。
+各処理のログを個別に確認できるため、結合動作の確認時はこちらを使用してください。
+
+### 事前準備
+
+プロジェクトルートで必要ライブラリをインストールします。
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -r .\src\requirements.txt
+.\.venv\Scripts\python.exe -m pip install python-dotenv filelock openpyxl
+```
+
+プロジェクトルート直下に `.env` を配置します。
+
+```text
+project-root/
+├── .env
+├── .gitignore
+├── .venv/
+└── src/
+```
+
+`.env` にはSlack Incoming Webhook URLを設定します。
+
+```env
+SLACK_WEBHOOK_URL=https://hooks.slack.com/services/XXX/XXX/XXX
+```
+
+`.env` は秘密情報を含むため、Gitへ登録しません。`.gitignore` に次を追加してください。
+
+```gitignore
+.env
+```
+
+実行中は、以下のCSVとExcelをExcel・エディター・プレビュー機能で開かないでください。Windowsのファイルロックにより、CSVまたはExcelの置換保存に失敗することがあります。
+
+```text
+src/backend/daily_analysis.csv
+src/backend/weekly_analysis.csv
+src/backend/monthly_analysis.csv
+src/backend/yearly_analysis.csv
+src/notification/result/notification_database.xlsx
+```
+
+### 実行順序
+
+```text
+PowerShell 1：FastAPIを起動
+        ↓
+PowerShell 2：notification_launcher.pyを起動してCSV更新待機
+        ↓
+PowerShell 3：curlで動画解析ジョブを登録
+        ↓
+FastAPIが動画解析を実行
+        ↓
+src/backend/detections.csvを追加・更新
+        ↓
+Launcherが更新を検知
+        ↓
+daily / weekly / monthly / yearly バッチを実行
+        ↓
+notification_database.xlsxのrawシートを更新
+        ↓
+通知用データを計算
+        ↓
+notificationシートへ書き込み
+        ↓
+Slackへ通知
+```
+
+### PowerShell 1：FastAPIの起動
+
+プロジェクトルートで実行します。
+
+```powershell
+$env:PYTHONPATH = ".\src"
+
+.\.venv\Scripts\python.exe -m uvicorn backend.api:app `
+  --app-dir .\src `
+  --host 127.0.0.1 `
+  --port 8000 `
+  --workers 1
+```
+
+次の表示が出れば起動成功です。
+
+```text
+Uvicorn running on http://127.0.0.1:8000
+```
+
+このPowerShellは閉じず、そのまま待機させます。動画解析の進行状況もこの画面へ表示されます。
+
+### PowerShell 2：通知Launcherの起動
+
+別のPowerShellを開き、プロジェクトルートへ移動します。
+
+```powershell
+cd C:\Users\matsukiymato\businessAIsystem-nagoya-teamA
+$env:PYTHONPATH = ".\src"
+
+.\.venv\Scripts\python.exe `
+  -m notification.notification_launcher `
+  --reset-baseline
+```
+
+次の表示が出れば正常な待機状態です。
+
+```text
+実行環境の確認が完了しました。
+現在のdetections.csvを監視開始時点の基準として登録しました。
+動画解析ジョブによる次回のCSV追加・更新を待機します。
+```
+
+`--reset-baseline` は、Launcher起動時点の既存 `src/backend/detections.csv` を処理済みの基準として登録し、その後の追加・更新だけを検知するための指定です。
+
+このPowerShellも閉じず、そのまま待機させます。
+
+### PowerShell 3：動画解析ジョブの登録
+
+3つ目のPowerShellを開き、プロジェクトルートへ移動します。
+
+```powershell
+cd C:\Users\matsukiymato\businessAIsystem-nagoya-teamA
+```
+
+次のコマンドで動画解析ジョブを登録します。
+
+```powershell
+curl.exe -X POST "http://127.0.0.1:8000/video-analysis/jobs" `
+  -F "video=@src/inputs/videos/test_video.mp4;type=video/mp4" `
+  -F "start_timestamp=2026-07-21 10:00:00" `
+  -F "device_id=CAM001" `
+  -F "action=なし" `
+  -F "confidence=0.25" `
+  -F "image_size=320" `
+  -F "device=cpu" `
+  -F "gap_seconds=1.0"
+```
+
+正常に受け付けられると、HTTP 202とジョブIDが返ります。
+
+```json
+{
+  "job_id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+  "status": "queued",
+  "status_url": "/video-analysis/jobs/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+}
+```
+
+`queued` は解析完了ではなく、解析ジョブの受付が完了した状態です。
+
+### 動画解析ジョブの状態確認
+
+PowerShell 3で、返された `job_id` を指定して確認します。
+
+```powershell
+curl.exe "http://127.0.0.1:8000/video-analysis/jobs/<job_id>"
+```
+
+主な状態は次のとおりです。
+
+```text
+queued     ジョブ受付済み
+running    動画解析中
+completed  正常完了
+failed     解析失敗
+```
+
+正常完了時は、`status` に加えて `event_count`、`added_event_count`、`backend_total_count` も確認してください。
+
+### 各PowerShellで確認するログ
+
+#### PowerShell 1
+
+FastAPIとYOLO動画解析のログを確認します。
+
+```text
+POST /video-analysis/jobs HTTP/1.1 202 Accepted
+100/622フレーム処理済み
+200/622フレーム処理済み
+...
+動画解析が完了しました
+```
+
+#### PowerShell 2
+
+通知システム全体のログを確認します。
+
+```text
+detections.csvの新規作成・更新を検知しました。
+バックエンドバッチを実行します: daily
+dailyバッチが完了しました。
+バックエンドバッチを実行します: weekly
+weeklyバッチが完了しました。
+バックエンドバッチを実行します: monthly
+monthlyバッチが完了しました。
+バックエンドバッチを実行します: yearly
+yearlyバッチが完了しました。
+日次・週次・月次・年次CSVの更新を確認しました。
+Excelのrawシートを更新します。
+通知用データを計算します。
+notificationシートを更新します。
+Slack通知を開始します。
+```
+
+Slack送信成功時は、次のように表示されます。
+
+```text
+Slack通知成功: realtime_notification 行2
+Slack通知処理が完了しました
+```
+
+#### PowerShell 3
+
+ジョブ登録結果とジョブ状態を確認します。
+
+### 更新されるファイル
+
+バックエンド側：
+
+```text
+src/backend/detections.csv
+src/backend/daily_analysis.csv
+src/backend/weekly_analysis.csv
+src/backend/monthly_analysis.csv
+src/backend/yearly_analysis.csv
+```
+
+通知システム側：
+
+```text
+src/notification/result/notification_database.xlsx
+```
+
+更新対象シート：
+
+```text
+realtime_sheet
+daily_sheet
+weekly_sheet
+monthly_sheet
+yearly_sheet
+realtime_notification
+daily_notification
+weekly_notification
+monthly_notification
+yearly_notification
+```
+
+Slack送信結果は各notificationシートの `notification_status` に保存されます。
+
+```text
+PENDING  送信待ち
+SUCCESS  送信成功
+FAILED   送信失敗
+SKIPPED  送信対象外
+```
+
+### Slack通知が届かない場合
+
+`.env` が読み込まれていても、Webhook URLがIncoming Webhook形式でなければ送信されません。
+
+正しい形式：
+
+```env
+SLACK_WEBHOOK_URL=https://hooks.slack.com/services/XXX/XXX/XXX
+```
+
+URL全体を表示せずに設定状態だけ確認する場合：
+
+```powershell
+Remove-Item Env:SLACK_WEBHOOK_URL -ErrorAction SilentlyContinue
+
+.\.venv\Scripts\python.exe -c `
+"from dotenv import load_dotenv; import os; load_dotenv('.env'); u=os.getenv('SLACK_WEBHOOK_URL','').strip(); print('設定あり:', bool(u)); print('Incoming Webhook形式:', u.startswith('https://hooks.slack.com/services/') or u.startswith('https://hooks.slack-gov.com/services/'))"
+```
+
+期待結果：
+
+```text
+設定あり: True
+Incoming Webhook形式: True
+```
+
+通知用シートまで作成済みでSlack送信だけ失敗した場合は、動画解析からやり直さずSenderだけ実行できます。
+
+```powershell
+$env:PYTHONPATH = ".\src"
+Remove-Item Env:SLACK_WEBHOOK_URL -ErrorAction SilentlyContinue
+
+.\.venv\Scripts\python.exe `
+  -m notification.notification_sender `
+  .\src\notification\result\notification_database.xlsx
+```
+
+このコマンドは、`notification_status` が `PENDING` の行をすべて送信します。
+
+### 終了方法
+
+PowerShell 2のLauncherを停止します。
+
+```text
+Ctrl + C
+```
+
+PowerShell 1のFastAPIを停止します。
+
+```text
+Ctrl + C
+```
+
+PowerShell 3は、状態確認が終了したら閉じて問題ありません。
+
+### 注意事項
+
+- LauncherはSlack送信まで正常完了した後に、対象の `detections.csv` を処理済みとして記録します。
+- Slack設定不備などで途中失敗すると、同じ `detections.csv` を再処理して分析CSVへ同じ期間の結果を追記する可能性があります。エラー発生時はLauncherを停止し、原因を修正してから再開してください。
+- `notification_database.xlsx` をExcelで開いたまま実行すると、WriterまたはSenderの保存に失敗する可能性があります。
+- `.env` と実行時CSV・ExcelはGitへ登録しないでください。
