@@ -26,6 +26,7 @@
 *.venv/bin/activate
 .venv/
 .env
+.vscode/
 # 2. 自動生成されるファイル・ログ（「*」を使って拡張子でまとめて指定）
 __pycache__/
 *.py[cod]
@@ -57,3 +58,5 @@ src/outputs/training/**
 
 .venv
 
+# 5. 通知用Excelデータベース
+notification_database.xlsx
