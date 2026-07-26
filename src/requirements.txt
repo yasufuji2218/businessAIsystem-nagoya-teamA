@@ -12,3 +12,5 @@ pillow
 pyyaml
 pytest
 httpx
+openpyxl
+filelock

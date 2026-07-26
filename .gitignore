@@ -42,6 +42,7 @@ src/backend/*_backup.csv
 *.mp4
 last.pt
 yolo11n.pt
+.notification_launcher_state.json
 
 # 学習生成物は除外し、バックエンド実行に必要なbest.ptだけを管理する
 src/outputs/training/**
