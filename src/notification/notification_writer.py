@@ -11,6 +11,7 @@ from typing import Any
 from filelock import FileLock, Timeout
 from openpyxl import load_workbook
 from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.datavalidation import DataValidation
 from openpyxl.worksheet.worksheet import Worksheet
 
@@ -19,10 +20,14 @@ from notification.notification_calculator import (
     VALID_NOTIFICATION_STATUSES,
 )
 
+
 LOGGER = logging.getLogger(__name__)
+
 LOCK_TIMEOUT_SECONDS = 30
+
 HEADER_FILL_COLOR = "548235"
 HEADER_FONT_COLOR = "FFFFFF"
+
 STATUS_FILL_COLORS = {
     "PENDING": "FFF2CC",
     "SUCCESS": "C6E0B4",
@@ -49,6 +54,7 @@ def validate_notification_data(
         for sheet_name in NOTIFICATION_COLUMNS
         if sheet_name not in notification_data
     ]
+
     extra_sheets = [
         sheet_name
         for sheet_name in notification_data
@@ -76,23 +82,33 @@ def validate_notification_data(
                     f"{sheet_name}の{row_number}件目はdictである必要があります。"
                 )
 
+            actual_columns = list(row.keys())
+
             missing_columns = [
-                column for column in expected_columns if column not in row
+                column
+                for column in expected_columns
+                if column not in row
             ]
+
             extra_columns = [
-                column for column in row if column not in expected_columns
+                column
+                for column in actual_columns
+                if column not in expected_columns
             ]
 
             if missing_columns or extra_columns:
                 raise NotificationWriterError(
                     f"{sheet_name}の{row_number}件目の項目が仕様と一致しません。\n"
                     f"期待する項目: {expected_columns}\n"
-                    f"実際の項目: {list(row.keys())}\n"
+                    f"実際の項目: {actual_columns}\n"
                     f"不足項目: {missing_columns}\n"
                     f"余分な項目: {extra_columns}"
                 )
 
-            status = str(row.get("notification_status", "")).strip().upper()
+            status = str(
+                row.get("notification_status", "")
+            ).strip().upper()
+
             if status not in VALID_NOTIFICATION_STATUSES:
                 raise NotificationWriterError(
                     f"{sheet_name}の{row_number}件目に"
@@ -111,11 +127,17 @@ def validate_workbook_sheets(workbook: Any) -> None:
     if missing_sheets:
         raise NotificationWriterError(
             "notification_database.xlsxに必要な通知用シートがありません。\n"
-            + "\n".join(f"- {sheet_name}" for sheet_name in missing_sheets)
+            + "\n".join(
+                f"- {sheet_name}"
+                for sheet_name in missing_sheets
+            )
         )
 
 
-def normalize_excel_value(column_name: str, value: object) -> object:
+def normalize_excel_value(
+    column_name: str,
+    value: object,
+) -> object:
     """Excelへ書き込む値を列に応じて正規化する。"""
     if value is None:
         if column_name in {
@@ -124,6 +146,7 @@ def normalize_excel_value(column_name: str, value: object) -> object:
             "action_effectiveness",
         }:
             return "N/A"
+
         return None
 
     if column_name == "notification_status":
@@ -139,17 +162,26 @@ def replace_notification_sheet_data(
 ) -> None:
     """通知用シートをCalculatorの最新結果へ置き換える。"""
     if worksheet.max_row > 0:
-        worksheet.delete_rows(idx=1, amount=worksheet.max_row)
+        worksheet.delete_rows(
+            idx=1,
+            amount=worksheet.max_row,
+        )
 
     worksheet.append(columns)
 
     for row in rows:
         worksheet.append([
-            normalize_excel_value(column_name=column, value=row.get(column))
+            normalize_excel_value(
+                column_name=column,
+                value=row.get(column),
+            )
             for column in columns
         ])
 
-    format_notification_sheet(worksheet=worksheet, columns=columns)
+    format_notification_sheet(
+        worksheet=worksheet,
+        columns=columns,
+    )
 
 
 def format_notification_sheet(
@@ -161,6 +193,7 @@ def format_notification_sheet(
         fill_type="solid",
         fgColor=HEADER_FILL_COLOR,
     )
+
     header_font = Font(
         bold=True,
         color=HEADER_FONT_COLOR,
@@ -169,20 +202,24 @@ def format_notification_sheet(
     for cell in worksheet[1]:
         cell.fill = header_fill
         cell.font = header_font
-        cell.alignment = Alignment(horizontal="center", vertical="center")
+        cell.alignment = Alignment(
+            horizontal="center",
+            vertical="center",
+        )
 
     worksheet.freeze_panes = "A2"
     worksheet.auto_filter.ref = worksheet.dimensions
 
     column_positions = {
-        column: index + 1 for index, column in enumerate(columns)
+        column: index + 1
+        for index, column in enumerate(columns)
     }
 
     set_number_format(
-        worksheet,
-        column_positions,
-        "confidence",
-        "0.0000",
+        worksheet=worksheet,
+        column_positions=column_positions,
+        column_name="confidence",
+        number_format="0.0000",
     )
 
     for column_name in [
@@ -192,10 +229,10 @@ def format_notification_sheet(
         "trap_score",
     ]:
         set_number_format(
-            worksheet,
-            column_positions,
-            column_name,
-            "0.000",
+            worksheet=worksheet,
+            column_positions=column_positions,
+            column_name=column_name,
+            number_format="0.000",
         )
 
     for column_name in [
@@ -204,10 +241,10 @@ def format_notification_sheet(
         "comparison_previous_month",
     ]:
         set_number_format(
-            worksheet,
-            column_positions,
-            column_name,
-            '0.00"%"',
+            worksheet=worksheet,
+            column_positions=column_positions,
+            column_name=column_name,
+            number_format='0.00"%"',
         )
 
     for column_name in [
@@ -221,16 +258,17 @@ def format_notification_sheet(
         "peak_hour",
     ]:
         set_number_format(
-            worksheet,
-            column_positions,
-            column_name,
-            "0",
+            worksheet=worksheet,
+            column_positions=column_positions,
+            column_name=column_name,
+            number_format="0",
         )
 
     apply_status_validation_and_style(
         worksheet=worksheet,
         column_positions=column_positions,
     )
+
     adjust_column_widths(worksheet)
 
 
@@ -242,11 +280,19 @@ def set_number_format(
 ) -> None:
     """指定列へExcelの数値表示形式を設定する。"""
     column_index = column_positions.get(column_name)
+
     if column_index is None:
         return
 
-    for row_number in range(2, worksheet.max_row + 1):
-        cell = worksheet.cell(row=row_number, column=column_index)
+    for row_number in range(
+        2,
+        worksheet.max_row + 1,
+    ):
+        cell = worksheet.cell(
+            row=row_number,
+            column=column_index,
+        )
+
         if isinstance(cell.value, (int, float)):
             cell.number_format = number_format
 
@@ -255,19 +301,34 @@ def apply_status_validation_and_style(
     worksheet: Worksheet,
     column_positions: dict[str, int],
 ) -> None:
-    """notification_status列へ入力制限と色分けを設定する。"""
-    status_column_index = column_positions.get("notification_status")
+    """
+    notification_status列へ入力制限と色分けを設定する。
+
+    重要:
+    worksheet.cell(row=1000, ...)は呼び出さない。
+    文字列のセル範囲をDataValidationへ直接渡し、
+    空の1000行目を実セルとして生成しない。
+    """
+    status_column_index = column_positions.get(
+        "notification_status"
+    )
+
     if status_column_index is None:
         return
 
-    allowed_statuses = sorted(VALID_NOTIFICATION_STATUSES)
+    allowed_statuses = sorted(
+        VALID_NOTIFICATION_STATUSES
+    )
+
     validation = DataValidation(
         type="list",
         formula1='"' + ",".join(allowed_statuses) + '"',
         allow_blank=False,
     )
+
     validation.error = (
-        "PENDING、SUCCESS、FAILED、SKIPPEDのいずれかを入力してください。"
+        "PENDING、SUCCESS、FAILED、SKIPPEDの"
+        "いずれかを入力してください。"
     )
     validation.errorTitle = "不正な通知状態"
     validation.prompt = "通知状態を選択してください。"
@@ -275,25 +336,47 @@ def apply_status_validation_and_style(
 
     worksheet.add_data_validation(validation)
 
-    start_cell = worksheet.cell(row=2, column=status_column_index)
-    end_cell = worksheet.cell(
-        row=max(worksheet.max_row, 1000),
-        column=status_column_index,
+    status_column_letter = get_column_letter(
+        status_column_index
     )
-    validation.add(f"{start_cell.coordinate}:{end_cell.coordinate}")
 
-    for row_number in range(2, worksheet.max_row + 1):
-        cell = worksheet.cell(row=row_number, column=status_column_index)
-        status = str(cell.value or "").strip().upper()
+    # セルオブジェクトを作成せず、範囲文字列だけを登録する。
+    validation.add(
+        f"{status_column_letter}2:"
+        f"{status_column_letter}1000"
+    )
+
+    # 色分けは実データ行だけを対象にする。
+    for row_number in range(
+        2,
+        worksheet.max_row + 1,
+    ):
+        cell = worksheet.cell(
+            row=row_number,
+            column=status_column_index,
+        )
+
+        status = str(
+            cell.value or ""
+        ).strip().upper()
+
         fill_color = STATUS_FILL_COLORS.get(status)
 
         if fill_color:
-            cell.fill = PatternFill(fill_type="solid", fgColor=fill_color)
+            cell.fill = PatternFill(
+                fill_type="solid",
+                fgColor=fill_color,
+            )
 
-        cell.alignment = Alignment(horizontal="center", vertical="center")
+        cell.alignment = Alignment(
+            horizontal="center",
+            vertical="center",
+        )
 
 
-def adjust_column_widths(worksheet: Worksheet) -> None:
+def adjust_column_widths(
+    worksheet: Worksheet,
+) -> None:
     """セル内容に応じて列幅を調整する。"""
     for column_cells in worksheet.columns:
         maximum_length = 0
@@ -301,10 +384,17 @@ def adjust_column_widths(worksheet: Worksheet) -> None:
         for cell in column_cells:
             if cell.value is None:
                 continue
-            maximum_length = max(maximum_length, len(str(cell.value)))
+
+            maximum_length = max(
+                maximum_length,
+                len(str(cell.value)),
+            )
 
         column_letter = column_cells[0].column_letter
-        worksheet.column_dimensions[column_letter].width = min(
+
+        worksheet.column_dimensions[
+            column_letter
+        ].width = min(
             max(maximum_length + 2, 12),
             40,
         )
@@ -315,19 +405,29 @@ def save_workbook_atomically(
     workbook_path: Path,
 ) -> None:
     """一時ファイルへ保存後、元のExcelと原子的に置き換える。"""
-    workbook_path.parent.mkdir(parents=True, exist_ok=True)
+    workbook_path.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
 
     file_descriptor, temporary_name = tempfile.mkstemp(
         prefix=f".{workbook_path.stem}_",
         suffix=".xlsx",
         dir=workbook_path.parent,
     )
+
     os.close(file_descriptor)
+
     temporary_path = Path(temporary_name)
 
     try:
         workbook.save(temporary_path)
-        os.replace(temporary_path, workbook_path)
+
+        os.replace(
+            temporary_path,
+            workbook_path,
+        )
+
     finally:
         if temporary_path.exists():
             temporary_path.unlink()
@@ -352,8 +452,14 @@ def write_all_notification_sheets(
 
     validate_notification_data(notification_data)
 
-    lock_path = workbook_path.parent / f".{workbook_path.name}.lock"
-    lock = FileLock(str(lock_path), timeout=LOCK_TIMEOUT_SECONDS)
+    lock_path = workbook_path.parent / (
+        f".{workbook_path.name}.lock"
+    )
+
+    lock = FileLock(
+        str(lock_path),
+        timeout=LOCK_TIMEOUT_SECONDS,
+    )
 
     try:
         with lock:
@@ -366,7 +472,10 @@ def write_all_notification_sheets(
             try:
                 validate_workbook_sheets(workbook)
 
-                for sheet_name, columns in NOTIFICATION_COLUMNS.items():
+                for (
+                    sheet_name,
+                    columns,
+                ) in NOTIFICATION_COLUMNS.items():
                     rows = notification_data[sheet_name]
 
                     replace_notification_sheet_data(
@@ -385,6 +494,7 @@ def write_all_notification_sheets(
                     workbook=workbook,
                     workbook_path=workbook_path,
                 )
+
             finally:
                 workbook.close()
 
@@ -417,11 +527,13 @@ def main() -> None:
             "通知用データを計算し、notificationシートへ書き込みます。"
         )
     )
+
     parser.add_argument(
         "workbook_path",
         type=Path,
         help="notification_database.xlsxのパス",
     )
+
     parser.add_argument(
         "--preview-json",
         action="store_true",
@@ -453,12 +565,14 @@ def main() -> None:
 if __name__ == "__main__":
     try:
         main()
+
     except PermissionError:
         LOGGER.error(
             "notification_database.xlsxへ書き込めません。"
             "Excelで開いている場合は閉じてください。"
         )
         raise SystemExit(1)
+
     except (
         FileNotFoundError,
         NotificationWriterError,
@@ -467,9 +581,13 @@ if __name__ == "__main__":
     ) as error:
         LOGGER.error("%s", error)
         raise SystemExit(1)
+
     except KeyboardInterrupt:
         LOGGER.info("Writerを終了しました。")
         raise SystemExit(0)
+
     except Exception:
-        LOGGER.exception("notificationシートの更新に失敗しました。")
+        LOGGER.exception(
+            "notificationシートの更新に失敗しました。"
+        )
         raise SystemExit(1)
