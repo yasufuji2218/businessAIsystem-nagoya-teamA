@@ -11,6 +11,7 @@ from fastapi import (
     File,
     Form,
     HTTPException,
+    Query,
     UploadFile,
     status,
 )
@@ -36,6 +37,8 @@ MAX_UPLOAD_BYTES = 2 * 1024 * 1024 * 1024
 LOCAL_CORS_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
     "http://localhost:8081",
     "http://127.0.0.1:8081",
     "http://localhost:19006",
@@ -170,6 +173,29 @@ def _run_video_analysis_job(
 @app.get("/")
 def root():
     return {"message": "Backend API"}
+
+
+@app.get("/detections")
+def get_detections(
+    limit: int = Query(500, ge=1, le=10000),
+):
+    df = read_backend_csv(DETECTIONS_CSV)
+    total_count = len(df)
+
+    if not df.empty:
+        df = df.sort_values("timestamp", ascending=False).head(limit)
+
+    records = (
+        df.astype(object)
+        .where(df.notna(), None)
+        .to_dict(orient="records")
+    )
+
+    return {
+        "count": len(records),
+        "total_count": total_count,
+        "detections": records,
+    }
 
 
 @app.get("/appearance")

@@ -31,6 +31,7 @@ class ApiRouteTests(unittest.TestCase):
 
         for route in (
             ("/", "GET"),
+            ("/detections", "GET"),
             ("/appearance", "GET"),
             ("/habituation", "GET"),
             ("/trap", "GET"),
@@ -40,7 +41,56 @@ class ApiRouteTests(unittest.TestCase):
             self.assertIn(route, routes)
 
         schema = api.app.openapi()
+        self.assertIn("get", schema["paths"]["/detections"])
         self.assertIn("post", schema["paths"]["/video-analysis/jobs"])
+
+    def test_detections_endpoint_returns_csv_rows(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            backend_csv = Path(temp_dir) / "backend" / "detections.csv"
+            backend_csv.parent.mkdir()
+            pd.DataFrame(
+                [
+                    [
+                        "2026-07-21T10:00:00",
+                        "CAM001",
+                        "イノシシ",
+                        0.8,
+                        "none",
+                        12.5,
+                    ],
+                    [
+                        "2026-07-22T10:00:00",
+                        "CAM002",
+                        "サル",
+                        0.9,
+                        "light",
+                        8.0,
+                    ],
+                ],
+                columns=[
+                    "timestamp",
+                    "device_id",
+                    "animal_type",
+                    "confidence",
+                    "action_triggered",
+                    "stay_duration",
+                ],
+            ).to_csv(backend_csv, index=False, encoding="utf-8-sig")
+
+            original_backend_csv = api.DETECTIONS_CSV
+            api.DETECTIONS_CSV = backend_csv
+            try:
+                response = api.get_detections(limit=1)
+            finally:
+                api.DETECTIONS_CSV = original_backend_csv
+
+        self.assertEqual(response["total_count"], 2)
+        self.assertEqual(response["count"], 1)
+        self.assertEqual(
+            response["detections"][0]["timestamp"],
+            "2026-07-22T10:00:00",
+        )
+        self.assertEqual(response["detections"][0]["animal_type"], "サル")
 
     def test_cors_is_limited_to_local_origins(self) -> None:
         cors = next(

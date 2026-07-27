@@ -27,6 +27,7 @@
 .venv/
 .env
 .vscode/
+local_frontend/
 # 2. 自動生成されるファイル・ログ（「*」を使って拡張子でまとめて指定）
 frontend/dist/
 frontend/test-results/
@@ -37,6 +38,7 @@ __pycache__/
 .pytest_cache/
 *.lock
 src/inputs/video_jobs/
+src/inputs.zip
 src/outputs/video_analysis/jobs/
 Ultralytics/
 src/inputs/

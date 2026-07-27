@@ -12,7 +12,7 @@
  * 依存パッケージ: react / recharts / lucide-react / Tailwind CSS
  */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   LayoutDashboard,
   History,
@@ -134,6 +134,7 @@ function generateLog() {
           ? [18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4][Math.floor(rand() * 11)]
           : 5 + Math.floor(rand() * 13);
       const minute = Math.floor(rand() * 60);
+      const second = 0;
       const animal = pickAnimal();
       const maxCount =
         animal === "サル"
@@ -149,8 +150,9 @@ function generateLog() {
         day: date.getDate(),
         hour,
         minute,
+        second,
         dateKey: `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`,
-        datetimeLabel: `${date.getFullYear()}/${pad2(date.getMonth() + 1)}/${pad2(date.getDate())} ${pad2(hour)}:${pad2(minute)}`,
+        datetimeLabel: `${date.getFullYear()}/${pad2(date.getMonth() + 1)}/${pad2(date.getDate())} ${pad2(hour)}:${pad2(minute)}:${pad2(second)}`,
         cameraId: CAMERAS[Math.floor(rand() * CAMERAS.length)],
         animal,
         maxCount,
@@ -168,35 +170,208 @@ function generateLog() {
   return records;
 }
 
-const DETECTION_LOG = generateLog();
-const TODAY_KEY = "2026-07-07";
-const TODAY_LABEL = "2026年7月7日（火）";
-const LATEST = DETECTION_LOG[0];
+const FALLBACK_DETECTION_LOG = generateLog();
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "/api").replace(/\/+$/, "");
+
+function getAnimalColor(animal) {
+  return COLORS[animal] || "#6b7280";
+}
+
+function getCameraPlace(cameraId) {
+  return CAMERA_PLACES[cameraId] || "設置場所未登録";
+}
+
+function toFiniteNumber(value, fallback = 0) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
+}
+
+function parseBackendTimestamp(timestamp) {
+  if (!timestamp) return new Date(NaN);
+  return new Date(String(timestamp).replace(" ", "T"));
+}
+
+function normalizeBackendDetection(row, index, receivedAtMs) {
+  const timestamp = row.timestamp || "";
+  const parsed = parseBackendTimestamp(timestamp);
+  const hasValidDate = Number.isFinite(parsed.getTime());
+  const year = hasValidDate ? parsed.getFullYear() : 0;
+  const month = hasValidDate ? parsed.getMonth() + 1 : 0;
+  const day = hasValidDate ? parsed.getDate() : 0;
+  const hour = hasValidDate ? parsed.getHours() : 0;
+  const minute = hasValidDate ? parsed.getMinutes() : 0;
+  const second = hasValidDate ? parsed.getSeconds() : 0;
+  const dateKey = hasValidDate
+    ? `${year}-${pad2(month)}-${pad2(day)}`
+    : "";
+  const datetimeLabel = hasValidDate
+    ? `${year}/${pad2(month)}/${pad2(day)} ${pad2(hour)}:${pad2(minute)}:${pad2(second)}`
+    : String(timestamp || "timestamp unknown");
+
+  return {
+    id: `${timestamp}-${row.device_id || "camera"}-${index}`,
+    year,
+    month,
+    day,
+    hour,
+    minute,
+    second,
+    dateKey,
+    datetimeLabel,
+    timestampMs: hasValidDate ? parsed.getTime() : 0,
+    receivedAtMs,
+    cameraId: row.device_id || "UNKNOWN",
+    animal: row.animal_type || "不明",
+    maxCount: 1,
+    confidence: toFiniteNumber(row.confidence),
+    action: row.action_triggered || "none",
+    staySec: Math.round(toFiniteNumber(row.stay_duration)),
+  };
+}
+
+async function fetchApiJson(path, signal) {
+  const response = await fetch(`${API_BASE_URL}${path}`, { signal });
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data?.detail || response.statusText);
+  }
+
+  return data;
+}
+
+async function fetchDetections(signal) {
+  const data = await fetchApiJson("/detections?limit=10000", signal);
+  const rows = Array.isArray(data?.detections) ? data.detections : [];
+  const receivedAtMs = Date.now();
+
+  return rows
+    .map((row, index) => normalizeBackendDetection(row, index, receivedAtMs))
+    .sort((a, b) => b.timestampMs - a.timestampMs);
+}
+
+function getTimelineContext(detectionLog) {
+  const latest = detectionLog[0] || null;
+  if (!latest) {
+    return {
+      latest: null,
+      todayKey: "",
+      todayLabel: "データなし",
+    };
+  }
+
+  return {
+    latest,
+    todayKey: latest.dateKey,
+    todayLabel: `${latest.year}年${latest.month}月${latest.day}日`,
+  };
+}
 
 /* 時間帯別集計（夜間/日中を色分け） */
-const HOURLY_DATA = (() => {
+function buildHourlyData(detectionLog) {
   const bins = Array.from({ length: 24 }, (_, h) => ({
     hour: h,
     label: `${h}時`,
     検知数: 0,
     isNight: h >= 18 || h <= 4,
   }));
-  DETECTION_LOG.forEach((r) => {
-    bins[r.hour].検知数 += 1;
+  detectionLog.forEach((r) => {
+    if (r.hour >= 0 && r.hour < 24) {
+      bins[r.hour].検知数 += 1;
+    }
   });
   return bins;
-})();
+}
 
 /* 曜日別集計 */
-const WEEKDAY_DATA = (() => {
+function buildWeekdayData(detectionLog) {
   const names = ["日", "月", "火", "水", "木", "金", "土"];
   const bins = names.map((n) => ({ label: n, 検知数: 0 }));
-  DETECTION_LOG.forEach((r) => {
+  detectionLog.forEach((r) => {
+    if (!r.dateKey) return;
     const dow = new Date(r.year, r.month - 1, r.day).getDay();
-    bins[dow].検知数 += 1;
+    if (Number.isInteger(dow) && bins[dow]) {
+      bins[dow].検知数 += 1;
+    }
   });
   return bins;
-})();
+}
+
+function getAvailableValues(baseValues, detectionLog, key) {
+  return Array.from(
+    new Set([
+      ...baseValues,
+      ...detectionLog.map((row) => row[key]).filter(Boolean),
+    ]),
+  );
+}
+
+function formatClockTime(record) {
+  return `${pad2(record.hour)}:${pad2(record.minute)}:${pad2(record.second || 0)}`;
+}
+
+function formatShortDateTime(record) {
+  return `${record.month}/${record.day} ${formatClockTime(record)}`;
+}
+
+function formatElapsedSince(timeMs, nowMs) {
+  if (!timeMs) return "未取得";
+  const seconds = Math.max(0, Math.floor((nowMs - timeMs) / 1000));
+  if (seconds < 5) return "たった今";
+  if (seconds < 60) return `${seconds}秒前`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}分前`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}時間前`;
+  return `${Math.floor(hours / 24)}日前`;
+}
+
+function buildAlertSummary(detectionLog) {
+  const latest = detectionLog[0];
+  if (!latest) {
+    return {
+      level: "低",
+      totalCount: 0,
+      nightCount: 0,
+      topAnimal: "なし",
+      message: "検知履歴がないため、警戒レベルは低です。",
+    };
+  }
+
+  const referenceMs = latest.timestampMs || Date.now();
+  const threeDaysMs = 3 * 24 * 60 * 60 * 1000;
+  const recentRecords = detectionLog.filter(
+    (record) => record.timestampMs && record.timestampMs >= referenceMs - threeDaysMs,
+  );
+  const records = recentRecords.length > 0 ? recentRecords : detectionLog;
+  const nightCount = records.filter((record) => record.hour >= 18 || record.hour <= 4).length;
+  const animalCounts = records.reduce((counts, record) => {
+    counts[record.animal] = (counts[record.animal] || 0) + 1;
+    return counts;
+  }, {});
+  const topAnimal =
+    Object.entries(animalCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || "なし";
+  const boarCount = animalCounts.イノシシ || 0;
+  const avgStay =
+    records.reduce((sum, record) => sum + toFiniteNumber(record.staySec), 0) /
+    Math.max(records.length, 1);
+  const score = records.length + nightCount * 2 + boarCount * 1.5 + avgStay / 30;
+  const level = score >= 18 ? "高" : score >= 6 ? "中" : "低";
+  const message =
+    level === "高"
+      ? "検知件数と夜間活動が多いため、重点監視が必要です。"
+      : level === "中"
+        ? "一定数の検知があります。推移を確認してください。"
+        : "直近の検知は少なく、警戒レベルは低めです。";
+
+  return {
+    level,
+    totalCount: records.length,
+    nightCount,
+    topAnimal,
+    message,
+  };
+}
 
 /* 滞在時間の週次推移（撃退慣れ検知付き）
    Warn=true の点は「滞在時間が3週連続で増加＝撃退慣れの兆候」 */
@@ -287,7 +462,7 @@ function AnimalChip({ animal }) {
     <span className="inline-flex items-center gap-1.5 rounded-full bg-gray-100 px-3 py-1 text-base font-semibold text-gray-800">
       <span
         className="h-3 w-3 rounded-full"
-        style={{ backgroundColor: COLORS[animal] }}
+        style={{ backgroundColor: getAnimalColor(animal) }}
         aria-hidden
       />
       {animal}
@@ -307,13 +482,36 @@ const CHART_TOOLTIP_STYLE = {
 /* ① 総合ダッシュボード                                                */
 /* ------------------------------------------------------------------ */
 
-function DashboardScreen() {
-  const todayRecords = DETECTION_LOG.filter((r) => r.dateKey === TODAY_KEY);
+function DashboardScreen({
+  detectionLog,
+  todayKey,
+  todayLabel,
+  latest,
+  alertSummary,
+  lastFetchedAtMs,
+  nowMs,
+}) {
+  const todayRecords = detectionLog.filter((r) => r.dateKey === todayKey);
   const todayByAnimal = ANIMALS.map((a) => ({
     animal: a,
     count: todayRecords.filter((r) => r.animal === a).length,
   }));
-  const recent5 = DETECTION_LOG.slice(0, 5);
+  const recent5 = detectionLog.slice(0, 5);
+
+  if (!latest) {
+    return (
+      <Card>
+        <CardHeader
+          icon={Activity}
+          title="ライブステータス"
+          sub="検知履歴がまだありません"
+        />
+        <div className="p-5 text-base text-gray-600">
+          バックエンドの detections.csv に検知履歴が追加されると表示されます。
+        </div>
+      </Card>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -341,11 +539,11 @@ function DashboardScreen() {
                 最新検知カメラ
               </p>
               <p className="mt-1 text-3xl font-bold text-gray-900">
-                {LATEST.cameraId}
+                {latest.cameraId}
               </p>
               <p className="mt-1 flex items-center gap-1 text-base text-gray-600">
                 <MapPin className="h-4 w-4" aria-hidden />
-                {CAMERA_PLACES[LATEST.cameraId]}
+                {getCameraPlace(latest.cameraId)}
               </p>
             </div>
             <div className="rounded-lg bg-gray-50 p-4">
@@ -354,10 +552,10 @@ function DashboardScreen() {
                 動物種別
               </p>
               <p className="mt-1 text-3xl font-bold text-gray-900">
-                {LATEST.animal}
+                {latest.animal}
               </p>
               <p className="mt-1 text-base text-gray-600">
-                最大 {LATEST.maxCount} 頭を同時検知
+                最大 {latest.maxCount} 頭を同時検知
               </p>
             </div>
             <div className="rounded-lg bg-gray-50 p-4">
@@ -366,9 +564,9 @@ function DashboardScreen() {
                 検知日時
               </p>
               <p className="mt-1 text-3xl font-bold text-gray-900">
-                {pad2(LATEST.hour)}:{pad2(LATEST.minute)}
+                {pad2(latest.hour)}:{pad2(latest.minute)}
               </p>
-              <p className="mt-1 text-base text-gray-600">{LATEST.datetimeLabel}</p>
+              <p className="mt-1 text-base text-gray-600">{latest.datetimeLabel}</p>
             </div>
           </div>
         </Card>
@@ -376,11 +574,13 @@ function DashboardScreen() {
         <Card>
           <CardHeader icon={Moon} title="夜間警戒レベル" sub="今夜の出没リスク予測" />
           <div className="flex flex-col items-center gap-4 p-6">
-            <AlertLevelBadge level="高" large />
+            <AlertLevelBadge level={alertSummary.level} large />
             <p className="text-center text-base leading-relaxed text-gray-700">
-              直近3日間の夜間（18時〜翌4時）に
-              <span className="font-bold text-red-700"> 12件 </span>
-              の検知が発生。イノシシの活動が活発です。
+              直近3日間に
+              <span className="font-bold text-red-700"> {alertSummary.totalCount}件 </span>
+              の検知、夜間（18時〜翌4時）は
+              <span className="font-bold text-red-700"> {alertSummary.nightCount}件 </span>
+              です。最多検知は{alertSummary.topAnimal}。{alertSummary.message}
             </p>
             <div className="flex w-full items-center justify-center gap-3 border-t border-gray-100 pt-3 text-sm text-gray-500">
               <span className="flex items-center gap-1">
@@ -402,7 +602,7 @@ function DashboardScreen() {
         <CardHeader
           icon={TrendingUp}
           title="本日のクイック統計"
-          sub={`${TODAY_LABEL} の検知サマリー`}
+          sub={`${todayLabel} の検知サマリー`}
         />
         <div className="grid grid-cols-2 gap-4 p-5 md:grid-cols-5">
           <div className="rounded-lg border-2 border-emerald-600 bg-emerald-50 p-4">
@@ -417,7 +617,7 @@ function DashboardScreen() {
               <p className="flex items-center gap-1.5 text-sm font-semibold text-gray-500">
                 <span
                   className="h-3 w-3 rounded-full"
-                  style={{ backgroundColor: COLORS[animal] }}
+                  style={{ backgroundColor: getAnimalColor(animal) }}
                   aria-hidden
                 />
                 {animal}
@@ -436,22 +636,25 @@ function DashboardScreen() {
         <CardHeader
           icon={Bell}
           title="リアルタイム速報"
-          sub="最新5件の検知履歴"
+          sub={`最新5件の検知履歴 / 最終更新 ${formatElapsedSince(lastFetchedAtMs, nowMs)}`}
         />
         <ul className="divide-y divide-gray-100 p-2">
           {recent5.map((r) => (
             <li
               key={r.id}
               className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border-l-4 px-4 py-3.5 hover:bg-gray-50"
-              style={{ borderLeftColor: COLORS[r.animal] }}
+              style={{ borderLeftColor: getAnimalColor(r.animal) }}
             >
               <span className="min-w-[7.5rem] text-lg font-bold tabular-nums text-gray-900">
-                {r.month}/{r.day} {pad2(r.hour)}:{pad2(r.minute)}
+                {formatShortDateTime(r)}
+              </span>
+              <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-sm font-bold text-emerald-700">
+                受信 {formatElapsedSince(r.receivedAtMs || lastFetchedAtMs, nowMs)}
               </span>
               <AnimalChip animal={r.animal} />
               <span className="inline-flex items-center gap-1 text-base text-gray-700">
                 <Camera className="h-4 w-4 text-gray-400" aria-hidden />
-                {r.cameraId}（{CAMERA_PLACES[r.cameraId]}）
+                {r.cameraId}（{getCameraPlace(r.cameraId)}）
               </span>
               <span className="text-base text-gray-700">
                 最大 <b className="tabular-nums">{r.maxCount}</b> 頭
@@ -479,7 +682,7 @@ function selectClass() {
   return "rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-base font-medium text-gray-900 focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-200";
 }
 
-function HistoryScreen() {
+function HistoryScreen({ detectionLog }) {
   const [cameraFilter, setCameraFilter] = useState("all");
   const [animalFilter, setAnimalFilter] = useState("all");
   const [dateFrom, setDateFrom] = useState("");
@@ -488,21 +691,29 @@ function HistoryScreen() {
   const [exportYear, setExportYear] = useState("2026");
   const [exportMonth, setExportMonth] = useState("6");
   const [exportAnimal, setExportAnimal] = useState("サル");
+  const availableCameras = useMemo(
+    () => getAvailableValues(CAMERAS, detectionLog, "cameraId"),
+    [detectionLog],
+  );
+  const availableAnimals = useMemo(
+    () => getAvailableValues(ANIMALS, detectionLog, "animal"),
+    [detectionLog],
+  );
 
   const filtered = useMemo(
     () =>
-      DETECTION_LOG.filter((r) => {
+      detectionLog.filter((r) => {
         if (cameraFilter !== "all" && r.cameraId !== cameraFilter) return false;
         if (animalFilter !== "all" && r.animal !== animalFilter) return false;
         if (dateFrom && r.dateKey < dateFrom) return false;
         if (dateTo && r.dateKey > dateTo) return false;
         return true;
       }),
-    [cameraFilter, animalFilter, dateFrom, dateTo],
+    [cameraFilter, animalFilter, dateFrom, dateTo, detectionLog],
   );
 
   const handleExport = () => {
-    const rows = DETECTION_LOG.filter(
+    const rows = detectionLog.filter(
       (r) =>
         String(r.year) === exportYear &&
         String(r.month) === exportMonth &&
@@ -544,9 +755,9 @@ function HistoryScreen() {
               onChange={(e) => setCameraFilter(e.target.value)}
             >
               <option value="all">すべてのカメラ</option>
-              {CAMERAS.map((c) => (
+              {availableCameras.map((c) => (
                 <option key={c} value={c}>
-                  {c}（{CAMERA_PLACES[c]}）
+                  {c}（{getCameraPlace(c)}）
                 </option>
               ))}
             </select>
@@ -559,7 +770,7 @@ function HistoryScreen() {
               onChange={(e) => setAnimalFilter(e.target.value)}
             >
               <option value="all">すべての動物</option>
-              {ANIMALS.map((a) => (
+              {availableAnimals.map((a) => (
                 <option key={a} value={a}>
                   {a}
                 </option>
@@ -585,6 +796,62 @@ function HistoryScreen() {
             />
           </label>
         </div>
+      </Card>
+
+      {/* 履歴データテーブル */}
+      <Card>
+        <CardHeader
+          icon={History}
+          title="検知履歴一覧"
+          sub={`該当 ${filtered.length} 件`}
+        />
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[860px] text-left">
+            <thead>
+              <tr className="border-b-2 border-gray-200 bg-gray-50 text-base text-gray-600">
+                <th className="px-5 py-3 font-bold">検知日時</th>
+                <th className="px-5 py-3 font-bold">カメラID</th>
+                <th className="px-5 py-3 font-bold">動物の種類</th>
+                <th className="px-5 py-3 text-right font-bold">最大同時検知頭数</th>
+                <th className="px-5 py-3 font-bold">実行アクション</th>
+                <th className="px-5 py-3 text-right font-bold">滞在時間（秒）</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.slice(0, 30).map((r, i) => (
+                <tr
+                  key={r.id}
+                  className={`border-b border-gray-100 text-base text-gray-800 ${
+                    i % 2 === 1 ? "bg-gray-50/60" : ""
+                  } hover:bg-emerald-50/50`}
+                >
+                  <td className="px-5 py-3 font-medium tabular-nums">
+                    {r.datetimeLabel}
+                  </td>
+                  <td className="px-5 py-3">
+                    {r.cameraId}
+                    <span className="ml-1 text-sm text-gray-500">
+                      {getCameraPlace(r.cameraId)}
+                    </span>
+                  </td>
+                  <td className="px-5 py-3">
+                    <AnimalChip animal={r.animal} />
+                  </td>
+                  <td className="px-5 py-3 text-right font-bold tabular-nums">
+                    {r.maxCount}
+                  </td>
+                  <td className="px-5 py-3">{r.action}</td>
+                  <td className="px-5 py-3 text-right tabular-nums">{r.staySec}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {filtered.length > 30 && (
+          <p className="border-t border-gray-100 px-5 py-3 text-base text-gray-500">
+            最新30件を表示中（全 {filtered.length} 件）。全件はCSVエクスポートをご利用ください。
+          </p>
+        )}
       </Card>
 
       {/* 高機能エクスポート */}
@@ -623,7 +890,7 @@ function HistoryScreen() {
           <fieldset className="flex flex-col gap-1.5">
             <legend className="text-sm font-bold text-gray-600">動物種別</legend>
             <div className="flex gap-2 rounded-lg border border-gray-300 bg-white p-1.5">
-              {["サル", "イノシシ", "all"].map((a) => (
+              {[...availableAnimals, "all"].map((a) => (
                 <label
                   key={a}
                   className={`cursor-pointer rounded-md px-4 py-1.5 text-base font-bold ${
@@ -654,62 +921,6 @@ function HistoryScreen() {
             CSVダウンロード
           </button>
         </div>
-      </Card>
-
-      {/* 履歴データテーブル */}
-      <Card>
-        <CardHeader
-          icon={History}
-          title="検知履歴一覧"
-          sub={`該当 ${filtered.length} 件`}
-        />
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[860px] text-left">
-            <thead>
-              <tr className="border-b-2 border-gray-200 bg-gray-50 text-base text-gray-600">
-                <th className="px-5 py-3 font-bold">検知日時</th>
-                <th className="px-5 py-3 font-bold">カメラID</th>
-                <th className="px-5 py-3 font-bold">動物の種類</th>
-                <th className="px-5 py-3 text-right font-bold">最大同時検知頭数</th>
-                <th className="px-5 py-3 font-bold">実行アクション</th>
-                <th className="px-5 py-3 text-right font-bold">滞在時間（秒）</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.slice(0, 30).map((r, i) => (
-                <tr
-                  key={r.id}
-                  className={`border-b border-gray-100 text-base text-gray-800 ${
-                    i % 2 === 1 ? "bg-gray-50/60" : ""
-                  } hover:bg-emerald-50/50`}
-                >
-                  <td className="px-5 py-3 font-medium tabular-nums">
-                    {r.datetimeLabel}
-                  </td>
-                  <td className="px-5 py-3">
-                    {r.cameraId}
-                    <span className="ml-1 text-sm text-gray-500">
-                      {CAMERA_PLACES[r.cameraId]}
-                    </span>
-                  </td>
-                  <td className="px-5 py-3">
-                    <AnimalChip animal={r.animal} />
-                  </td>
-                  <td className="px-5 py-3 text-right font-bold tabular-nums">
-                    {r.maxCount}
-                  </td>
-                  <td className="px-5 py-3">{r.action}</td>
-                  <td className="px-5 py-3 text-right tabular-nums">{r.staySec}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        {filtered.length > 30 && (
-          <p className="border-t border-gray-100 px-5 py-3 text-base text-gray-500">
-            最新30件を表示中（全 {filtered.length} 件）。全件はCSVエクスポートをご利用ください。
-          </p>
-        )}
       </Card>
     </div>
   );
@@ -804,8 +1015,16 @@ function RiskBar({ label, value }) {
   );
 }
 
-function AnalysisScreen() {
+function AnalysisScreen({ detectionLog }) {
   const [selectedCamera, setSelectedCamera] = useState("CAM-03");
+  const hourlyData = useMemo(
+    () => buildHourlyData(detectionLog),
+    [detectionLog],
+  );
+  const weekdayData = useMemo(
+    () => buildWeekdayData(detectionLog),
+    [detectionLog],
+  );
   const metrics = CAMERA_ANALYSIS[selectedCamera];
   const radarData = Object.entries(metrics).map(([axis, value]) => ({
     axis,
@@ -831,7 +1050,7 @@ function AnalysisScreen() {
           <div className="p-5">
             <div className="h-72">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={HOURLY_DATA} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
+                <BarChart data={hourlyData} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
                   <CartesianGrid stroke={COLORS.grid} vertical={false} />
                   <XAxis
                     dataKey="label"
@@ -852,7 +1071,7 @@ function AnalysisScreen() {
                     formatter={(v) => [`${v} 件`, "検知数"]}
                   />
                   <Bar dataKey="検知数" radius={[4, 4, 0, 0]}>
-                    {HOURLY_DATA.map((d) => (
+                    {hourlyData.map((d) => (
                       <Cell
                         key={d.hour}
                         fill={d.isNight ? COLORS.seqDark : COLORS.seqLight}
@@ -880,7 +1099,7 @@ function AnalysisScreen() {
           <div className="p-5">
             <div className="h-72">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={WEEKDAY_DATA} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
+                <BarChart data={weekdayData} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
                   <CartesianGrid stroke={COLORS.grid} vertical={false} />
                   <XAxis
                     dataKey="label"
@@ -1068,7 +1287,7 @@ function AnalysisScreen() {
               >
                 {c}
                 <span className="ml-1 hidden text-sm font-semibold sm:inline">
-                  {CAMERA_PLACES[c]}
+                  {getCameraPlace(c)}
                 </span>
               </button>
             ))}
@@ -1130,19 +1349,19 @@ function AnalysisScreen() {
                 <p className="mt-3 text-base leading-relaxed text-gray-800">
                   {trapScore >= 70 ? (
                     <>
-                      <b>{selectedCamera}（{CAMERA_PLACES[selectedCamera]}）</b>
+                      <b>{selectedCamera}（{getCameraPlace(selectedCamera)}）</b>
                       は検知頻度・撃退慣れともに高水準です。威嚇装置の効果が低下しているため、
                       獣道の交差点付近への<b className="text-red-700">箱罠・くくり罠の設置を強く推奨</b>します。
                     </>
                   ) : trapScore >= 45 ? (
                     <>
-                      <b>{selectedCamera}（{CAMERA_PLACES[selectedCamera]}）</b>
+                      <b>{selectedCamera}（{getCameraPlace(selectedCamera)}）</b>
                       は増加傾向が見られます。今後2週間の推移を注視し、
                       慣れ度が70を超えた場合は罠の設置を検討してください。
                     </>
                   ) : (
                     <>
-                      <b>{selectedCamera}（{CAMERA_PLACES[selectedCamera]}）</b>
+                      <b>{selectedCamera}（{getCameraPlace(selectedCamera)}）</b>
                       は現在のところ威嚇装置が有効に機能しています。罠の優先度は低めです。
                     </>
                   )}
@@ -1168,7 +1387,63 @@ const PAGES = [
 
 export default function WildlifeDashboard() {
   const [page, setPage] = useState("dashboard");
+  const [detectionLog, setDetectionLog] = useState(FALLBACK_DETECTION_LOG);
+  const [dataSource, setDataSource] = useState("fallback");
+  const [lastFetchedAtMs, setLastFetchedAtMs] = useState(null);
+  const [nowMs, setNowMs] = useState(() => Date.now());
   const current = PAGES.find((p) => p.key === page);
+  const { latest, todayKey, todayLabel } = useMemo(
+    () => getTimelineContext(detectionLog),
+    [detectionLog],
+  );
+  const alertSummary = useMemo(
+    () => buildAlertSummary(detectionLog),
+    [detectionLog],
+  );
+  const activeCameraCount = useMemo(
+    () => getAvailableValues([], detectionLog, "cameraId").length || CAMERAS.length,
+    [detectionLog],
+  );
+  const dataSourceLabel =
+    dataSource === "api" ? "バックエンドCSV接続中" : "ダミーデータ表示中";
+
+  useEffect(() => {
+    let disposed = false;
+    let activeController = null;
+
+    const loadDetections = () => {
+      activeController?.abort();
+      activeController = new AbortController();
+
+      fetchDetections(activeController.signal)
+        .then((records) => {
+          if (disposed) return;
+          setDetectionLog(records);
+          setDataSource("api");
+          setLastFetchedAtMs(Date.now());
+        })
+        .catch((error) => {
+          if (disposed || error.name === "AbortError") return;
+          setDetectionLog(FALLBACK_DETECTION_LOG);
+          setDataSource("fallback");
+          setLastFetchedAtMs(null);
+        });
+    };
+
+    loadDetections();
+    const intervalId = window.setInterval(loadDetections, 5000);
+
+    return () => {
+      disposed = true;
+      activeController?.abort();
+      window.clearInterval(intervalId);
+    };
+  }, []);
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => setNowMs(Date.now()), 1000);
+    return () => window.clearInterval(intervalId);
+  }, []);
 
   return (
     <div className="flex min-h-screen bg-gray-100 text-gray-900 antialiased">
@@ -1206,9 +1481,9 @@ export default function WildlifeDashboard() {
         <div className="hidden border-t border-emerald-900 p-5 text-sm leading-relaxed text-emerald-300 lg:block">
           <p className="flex items-center gap-2 font-bold text-emerald-200">
             <Activity className="h-4 w-4" aria-hidden />
-            カメラ6台 稼働中
+            カメラ{activeCameraCount}台 稼働中
           </p>
-          <p className="mt-1">最終同期：{TODAY_LABEL} 05:00</p>
+          <p className="mt-1">最終同期：{todayLabel}</p>
         </div>
       </aside>
 
@@ -1217,10 +1492,10 @@ export default function WildlifeDashboard() {
         <header className="sticky top-0 z-10 flex items-center justify-between gap-4 border-b border-gray-200 bg-white px-6 py-4">
           <div>
             <h1 className="text-2xl font-bold text-gray-900">{current.label}</h1>
-            <p className="text-base text-gray-500">{TODAY_LABEL}</p>
+            <p className="text-base text-gray-500">{todayLabel}</p>
           </div>
           <div className="flex items-center gap-4">
-            <AlertLevelBadge level="高" />
+            <AlertLevelBadge level={alertSummary.level} />
             <button
               type="button"
               className="relative rounded-full border border-gray-200 bg-white p-2.5 text-gray-600 hover:bg-gray-50"
@@ -1235,13 +1510,23 @@ export default function WildlifeDashboard() {
         </header>
 
         <main className="flex-1 p-6">
-          {page === "dashboard" && <DashboardScreen />}
-          {page === "history" && <HistoryScreen />}
-          {page === "analysis" && <AnalysisScreen />}
+          {page === "dashboard" && (
+            <DashboardScreen
+              detectionLog={detectionLog}
+              todayKey={todayKey}
+              todayLabel={todayLabel}
+              latest={latest}
+              alertSummary={alertSummary}
+              lastFetchedAtMs={lastFetchedAtMs}
+              nowMs={nowMs}
+            />
+          )}
+          {page === "history" && <HistoryScreen detectionLog={detectionLog} />}
+          {page === "analysis" && <AnalysisScreen detectionLog={detectionLog} />}
         </main>
 
         <footer className="border-t border-gray-200 bg-white px-6 py-3 text-sm text-gray-400">
-          ケモノガード — AI獣害対策SaaS（UIモックアップ / ダミーデータ表示中）
+          ケモノガード — AI獣害対策SaaS（{dataSourceLabel}）
         </footer>
       </div>
     </div>
