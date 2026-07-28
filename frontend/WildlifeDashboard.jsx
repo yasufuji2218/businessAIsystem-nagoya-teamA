@@ -1446,9 +1446,9 @@ export default function WildlifeDashboard() {
   }, []);
 
   return (
-    <div className="flex min-h-screen bg-gray-100 text-gray-900 antialiased">
+    <div className="flex h-screen min-h-0 overflow-hidden bg-gray-100 text-gray-900 antialiased">
       {/* サイドバー */}
-      <aside className="flex w-20 shrink-0 flex-col bg-emerald-950 text-white lg:w-72">
+      <aside className="flex h-screen w-20 shrink-0 flex-col bg-emerald-950 text-white lg:w-72">
         <div className="flex items-center gap-3 border-b border-emerald-900 px-4 py-5 lg:px-6">
           <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-600">
             <Leaf className="h-6 w-6" aria-hidden />
@@ -1488,8 +1488,8 @@ export default function WildlifeDashboard() {
       </aside>
 
       {/* メイン */}
-      <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-10 flex items-center justify-between gap-4 border-b border-gray-200 bg-white px-6 py-4">
+      <div className="flex h-screen min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+        <header className="z-10 shrink-0 flex items-center justify-between gap-4 border-b border-gray-200 bg-white px-6 py-4">
           <div>
             <h1 className="text-2xl font-bold text-gray-900">{current.label}</h1>
             <p className="text-base text-gray-500">{todayLabel}</p>
@@ -1509,7 +1509,7 @@ export default function WildlifeDashboard() {
           </div>
         </header>
 
-        <main className="flex-1 p-6">
+        <main className="min-h-0 flex-1 overflow-y-auto p-6">
           {page === "dashboard" && (
             <DashboardScreen
               detectionLog={detectionLog}
@@ -1525,7 +1525,7 @@ export default function WildlifeDashboard() {
           {page === "analysis" && <AnalysisScreen detectionLog={detectionLog} />}
         </main>
 
-        <footer className="border-t border-gray-200 bg-white px-6 py-3 text-sm text-gray-400">
+        <footer className="shrink-0 border-t border-gray-200 bg-white px-6 py-3 text-sm text-gray-400">
           ケモノガード — AI獣害対策SaaS（{dataSourceLabel}）
         </footer>
       </div>
