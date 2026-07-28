@@ -32,7 +32,21 @@ import {
   Leaf,
   Target,
   CircleDot,
+  Wifi,
+  WifiOff,
+  Sparkles,
+  Upload,
+  Loader2,
+  CheckCircle2,
+  XCircle,
 } from "lucide-react";
+import {
+  fetchAppearance,
+  fetchHabituation,
+  fetchTrap,
+  submitVideoAnalysisJob,
+  fetchVideoAnalysisJob,
+} from "./src/api";
 import {
   ResponsiveContainer,
   BarChart,
@@ -61,8 +75,6 @@ const COLORS = {
   // 動物種別（カテゴリカル・固定割り当て）
   サル: "#2a78d6",
   イノシシ: "#1baf7a",
-  シカ: "#eda100",
-  ハクビシン: "#008300",
   // 状態色（警戒レベルなど・系列色とは別枠）
   critical: "#d03b3b",
   warning: "#fab219",
@@ -78,7 +90,7 @@ const COLORS = {
   seqDark: "#1c5cab",
 };
 
-const ANIMALS = ["サル", "イノシシ", "シカ", "ハクビシン"];
+const ANIMALS = ["サル", "イノシシ"];
 const CAMERAS = ["CAM-01", "CAM-02", "CAM-03", "CAM-04", "CAM-05", "CAM-06"];
 const CAMERA_PLACES = {
   "CAM-01": "北側農道",
@@ -116,10 +128,8 @@ function generateLog() {
 
   const pickAnimal = () => {
     const r = rand();
-    if (r < 0.34) return "イノシシ";
-    if (r < 0.64) return "サル";
-    if (r < 0.86) return "シカ";
-    return "ハクビシン";
+    if (r < 0.53) return "イノシシ";
+    return "サル";
   };
 
   let id = 0;
@@ -139,9 +149,7 @@ function generateLog() {
       const maxCount =
         animal === "サル"
           ? 1 + Math.floor(rand() * 11)
-          : animal === "イノシシ"
-            ? 1 + Math.floor(rand() * 5)
-            : 1 + Math.floor(rand() * 3);
+          : 1 + Math.floor(rand() * 5);
       id += 1;
       records.push({
         id: `DET-${String(id).padStart(4, "0")}`,
@@ -297,6 +305,40 @@ function buildWeekdayData(detectionLog) {
   return bins;
 }
 
+/* 月次比較（前月比増減率と季節バースト） */
+function buildMonthlyData(detectionLog) {
+  const counts = new Map();
+  detectionLog.forEach((r) => {
+    if (!r.year || !r.month) return;
+    const key = `${r.year}-${pad2(r.month)}`;
+    counts.set(key, (counts.get(key) || 0) + 1);
+  });
+
+  const sortedKeys = Array.from(counts.keys()).sort();
+  if (sortedKeys.length === 0) return [];
+
+  const latestKey = sortedKeys[sortedKeys.length - 1];
+  const nowKey = `${new Date().getFullYear()}-${pad2(new Date().getMonth() + 1)}`;
+
+  return sortedKeys.map((key, index) => {
+    const [year, month] = key.split("-");
+    const count = counts.get(key);
+    const previousCount = index > 0 ? counts.get(sortedKeys[index - 1]) : null;
+    const delta =
+      previousCount == null || previousCount === 0
+        ? null
+        : Math.round(((count - previousCount) / previousCount) * 100);
+
+    return {
+      month: `${Number(month)}月`,
+      検知数: count,
+      delta,
+      burst: delta != null && delta >= 40,
+      partial: key === latestKey && key === nowKey,
+    };
+  });
+}
+
 function getAvailableValues(baseValues, detectionLog, key) {
   return Array.from(
     new Set([
@@ -387,16 +429,6 @@ const WEEKLY_STAY_DATA = [
   { week: "6/22週", サル: 88, イノシシ: 79, サルWarn: true },
   { week: "6/29週", サル: 96, イノシシ: 91, サルWarn: true, イノシシWarn: true },
   { week: "7/6週", サル: 104, イノシシ: 98, サルWarn: true, イノシシWarn: true },
-];
-
-/* 月次比較（前月比増減率と季節バースト） */
-const MONTHLY_DATA = [
-  { month: "2月", 検知数: 96, delta: null },
-  { month: "3月", 検知数: 118, delta: 23 },
-  { month: "4月", 検知数: 131, delta: 11 },
-  { month: "5月", 検知数: 189, delta: 44, burst: true },
-  { month: "6月", 検知数: 214, delta: 13 },
-  { month: "7月", 検知数: 42, delta: null, partial: true },
 ];
 
 /* カメラ別分析（罠設置支援）: 各指標は0〜100のリスクスコア */
@@ -958,8 +990,8 @@ function HabituationDot(props) {
 
 /** 前月比の増減率ラベル（増加=赤 / 減少=緑） */
 function DeltaLabel(props) {
-  const { x, y, width, index } = props;
-  const d = MONTHLY_DATA[index];
+  const { x, y, width, index, monthlyData } = props;
+  const d = monthlyData[index];
   if (d.delta == null) {
     return d.partial ? (
       <text
@@ -985,6 +1017,212 @@ function DeltaLabel(props) {
     >
       {up ? `+${d.delta}%` : `${d.delta}%`}
     </text>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* バックエンドAPI連携（habituation / trap / 動画アップロード）           */
+/* ------------------------------------------------------------------ */
+
+/** マウント時にhabituation/trap APIを取得するフック。失敗時はnullのまま */
+function useBackendData() {
+  const [state, setState] = useState({
+    status: "loading",
+    habituation: null,
+    trap: null,
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+    Promise.allSettled([fetchHabituation(), fetchTrap()]).then(
+      ([habituation, trap]) => {
+        if (cancelled) return;
+        setState({
+          status: "done",
+          habituation: habituation.status === "fulfilled" ? habituation.value : null,
+          trap: trap.status === "fulfilled" ? trap.value : null,
+        });
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return state;
+}
+
+/** データがAPI由来かダミーかを示す小さなバッジ */
+function DataSourceBadge({ live }) {
+  return live ? (
+    <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-sm font-bold text-emerald-800">
+      <Wifi className="h-3.5 w-3.5" aria-hidden />
+      APIデータ
+    </span>
+  ) : (
+    <span className="inline-flex items-center gap-1.5 rounded-full bg-gray-100 px-3 py-1 text-sm font-bold text-gray-600">
+      <WifiOff className="h-3.5 w-3.5" aria-hidden />
+      ダミーデータ（バックエンド未対応）
+    </span>
+  );
+}
+
+/** 動画アップロード→解析ジョブ登録→完了までポーリングするカード */
+function VideoUploadCard() {
+  const [videoFile, setVideoFile] = useState(null);
+  const [deviceId, setDeviceId] = useState(CAMERAS[0]);
+  const [action, setAction] = useState(ACTIONS[0]);
+  const [startTimestamp, setStartTimestamp] = useState(() => {
+    const now = new Date();
+    now.setSeconds(0, 0);
+    return now.toISOString().slice(0, 16);
+  });
+  const [submitting, setSubmitting] = useState(false);
+  const [job, setJob] = useState(null);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    if (!job || !["queued", "running"].includes(job.status)) return;
+    const timer = setInterval(async () => {
+      try {
+        const updated = await fetchVideoAnalysisJob(job.job_id);
+        setJob(updated);
+      } catch (e) {
+        setError(e.message);
+      }
+    }, 2000);
+    return () => clearInterval(timer);
+  }, [job]);
+
+  const handleSubmit = async () => {
+    if (!videoFile) {
+      setError("MP4動画ファイルを選択してください。");
+      return;
+    }
+    setError(null);
+    setSubmitting(true);
+    setJob(null);
+    try {
+      const created = await submitVideoAnalysisJob(videoFile, {
+        startTimestamp: startTimestamp.replace("T", " ") + ":00",
+        deviceId,
+        action,
+      });
+      setJob(created);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader
+        icon={Upload}
+        title="動画をアップロードして解析"
+        sub="MP4をアップロードするとYOLOで解析し、検知イベントをバックエンドへ反映します"
+        right={<DataSourceBadge live />}
+      />
+      <div className="flex flex-col gap-4 p-5">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <label className="flex flex-col gap-1.5 lg:col-span-2">
+            <span className="text-sm font-bold text-gray-600">動画ファイル（MP4）</span>
+            <input
+              type="file"
+              accept="video/mp4"
+              className={selectClass()}
+              onChange={(e) => setVideoFile(e.target.files?.[0] ?? null)}
+            />
+          </label>
+          <label className="flex flex-col gap-1.5">
+            <span className="text-sm font-bold text-gray-600">カメラID</span>
+            <select
+              className={selectClass()}
+              value={deviceId}
+              onChange={(e) => setDeviceId(e.target.value)}
+            >
+              {CAMERAS.map((c) => (
+                <option key={c} value={c}>
+                  {c}（{getCameraPlace(c)}）
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex flex-col gap-1.5">
+            <span className="text-sm font-bold text-gray-600">実行アクション</span>
+            <select
+              className={selectClass()}
+              value={action}
+              onChange={(e) => setAction(e.target.value)}
+            >
+              {ACTIONS.map((a) => (
+                <option key={a} value={a}>
+                  {a}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex flex-col gap-1.5">
+            <span className="text-sm font-bold text-gray-600">撮影開始日時</span>
+            <input
+              type="datetime-local"
+              className={selectClass()}
+              value={startTimestamp}
+              onChange={(e) => setStartTimestamp(e.target.value)}
+            />
+          </label>
+        </div>
+
+        <button
+          type="button"
+          onClick={handleSubmit}
+          disabled={submitting}
+          className="inline-flex w-fit items-center gap-2 rounded-lg bg-emerald-700 px-6 py-3 text-lg font-bold text-white shadow-sm transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {submitting ? (
+            <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
+          ) : (
+            <Upload className="h-5 w-5" aria-hidden />
+          )}
+          解析ジョブを登録
+        </button>
+
+        {error && (
+          <p className="flex items-center gap-2 rounded-lg bg-red-50 px-4 py-3 text-base text-red-800">
+            <XCircle className="h-5 w-5 shrink-0" aria-hidden />
+            {error}
+          </p>
+        )}
+
+        {job && (
+          <div className="rounded-lg border border-gray-200 p-4">
+            <p className="flex items-center gap-2 text-base font-bold text-gray-800">
+              {job.status === "completed" && (
+                <CheckCircle2 className="h-5 w-5 text-emerald-600" aria-hidden />
+              )}
+              {job.status === "failed" && (
+                <XCircle className="h-5 w-5 text-red-600" aria-hidden />
+              )}
+              {(job.status === "queued" || job.status === "running") && (
+                <Loader2 className="h-5 w-5 animate-spin text-blue-600" aria-hidden />
+              )}
+              ジョブ状態: {job.status}
+              {job.progress_percent != null && `（${job.progress_percent}%）`}
+            </p>
+            {job.status === "completed" && (
+              <p className="mt-1 text-base text-gray-700">
+                検知イベント {job.event_count}件（新規追加 {job.added_event_count}件）。
+                バックエンド累計 {job.backend_total_count}件。
+              </p>
+            )}
+            {job.status === "failed" && (
+              <p className="mt-1 text-base text-red-700">{job.error}</p>
+            )}
+          </div>
+        )}
+      </div>
+    </Card>
   );
 }
 
@@ -1017,12 +1255,25 @@ function RiskBar({ label, value }) {
 
 function AnalysisScreen({ detectionLog }) {
   const [selectedCamera, setSelectedCamera] = useState("CAM-03");
+  const backend = useBackendData();
+  const apiTrapColor =
+    backend.trap?.level === "HIGH"
+      ? COLORS.critical
+      : backend.trap?.level === "MEDIUM"
+        ? COLORS.serious
+        : COLORS.good;
+  const apiTrapLevelLabel =
+    { HIGH: "高", MEDIUM: "中", LOW: "低" }[backend.trap?.level] ?? "-";
   const hourlyData = useMemo(
     () => buildHourlyData(detectionLog),
     [detectionLog],
   );
   const weekdayData = useMemo(
     () => buildWeekdayData(detectionLog),
+    [detectionLog],
+  );
+  const monthlyData = useMemo(
+    () => buildMonthlyData(detectionLog),
     [detectionLog],
   );
   const metrics = CAMERA_ANALYSIS[selectedCamera];
@@ -1039,6 +1290,8 @@ function AnalysisScreen({ detectionLog }) {
 
   return (
     <div className="space-y-6">
+      <VideoUploadCard />
+
       {/* 検知頻度グラフ（時間帯別・曜日別） */}
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
         <Card>
@@ -1207,11 +1460,12 @@ function AnalysisScreen({ detectionLog }) {
           icon={TrendingUp}
           title="月次比較（前月比・季節バースト）"
           sub="月間検知数と前月比増減率。オレンジは季節バースト（急増）月"
+          right={<DataSourceBadge live={detectionLog !== FALLBACK_DETECTION_LOG} />}
         />
         <div className="p-5">
           <div className="h-80">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={MONTHLY_DATA} margin={{ top: 28, right: 8, left: -16, bottom: 0 }}>
+              <BarChart data={monthlyData} margin={{ top: 28, right: 8, left: -16, bottom: 0 }}>
                 <CartesianGrid stroke={COLORS.grid} vertical={false} />
                 <XAxis
                   dataKey="month"
@@ -1231,7 +1485,7 @@ function AnalysisScreen({ detectionLog }) {
                   formatter={(v) => [`${v} 件`, "月間検知数"]}
                 />
                 <Bar dataKey="検知数" radius={[4, 4, 0, 0]} barSize={48}>
-                  {MONTHLY_DATA.map((d) => (
+                  {monthlyData.map((d) => (
                     <Cell
                       key={d.month}
                       fill={
@@ -1243,7 +1497,7 @@ function AnalysisScreen({ detectionLog }) {
                       }
                     />
                   ))}
-                  <LabelList content={<DeltaLabel />} />
+                  <LabelList content={<DeltaLabel monthlyData={monthlyData} />} />
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
@@ -1265,12 +1519,89 @@ function AnalysisScreen({ detectionLog }) {
         </div>
       </Card>
 
+      {/* AI慣れ度分析（バックエンドAPI連携） */}
+      <Card>
+        <CardHeader
+          icon={Sparkles}
+          title="AI慣れ度分析"
+          sub="バックエンドAPI（/habituation）による滞在時間ベースの慣れ度スコア"
+          right={<DataSourceBadge live={Boolean(backend.habituation)} />}
+        />
+        <div className="p-5">
+          {backend.habituation ? (
+            <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+              {[
+                ["日次", backend.habituation.familiarity_daily_score],
+                ["週次", backend.habituation.familiarity_weekly_score],
+                ["月次", backend.habituation.familiarity_monthly_score],
+                ["年次", backend.habituation.familiarity_yearly_score],
+              ].map(([label, score]) => (
+                <div key={label} className="rounded-lg border border-gray-200 p-4">
+                  <p className="text-sm font-semibold text-gray-500">{label}慣れ度</p>
+                  <p
+                    className="mt-1 text-3xl font-bold tabular-nums"
+                    style={{ color: score >= 0 ? COLORS.critical : COLORS.good }}
+                  >
+                    {score >= 0 ? "+" : ""}
+                    {(score * 100).toFixed(1)}
+                    <span className="ml-1 text-lg font-semibold text-gray-500">%</span>
+                  </p>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-base text-gray-500">
+              バックエンドAPIに接続できないため表示できません（
+              <code className="rounded bg-gray-100 px-1.5 py-0.5">uvicorn backend.api:app --app-dir src</code>
+              の起動をご確認ください）。
+            </p>
+          )}
+        </div>
+      </Card>
+
+      {/* バックエンドAPIによる総合罠設置推奨度 */}
+      <Card>
+        <CardHeader
+          icon={CircleDot}
+          title="総合罠設置推奨度（バックエンドAPI）"
+          sub="/trap のスコアに基づく、カメラを問わない全体の推奨度"
+          right={<DataSourceBadge live={Boolean(backend.trap)} />}
+        />
+        <div className="p-5">
+          {backend.trap ? (
+            <div
+              className="flex items-center justify-between rounded-lg border-2 p-5"
+              style={{ borderColor: apiTrapColor, backgroundColor: `${apiTrapColor}12` }}
+            >
+              <div>
+                <p className="text-base font-bold text-gray-900">trap_score</p>
+                <p className="text-3xl font-bold tabular-nums" style={{ color: apiTrapColor }}>
+                  {(backend.trap.trap_score * 100).toFixed(1)}
+                  <span className="ml-1 text-lg font-semibold text-gray-500">/100</span>
+                </p>
+              </div>
+              <span
+                className="rounded-full px-4 py-1.5 text-xl font-bold text-white"
+                style={{ backgroundColor: apiTrapColor }}
+              >
+                {apiTrapLevelLabel}（{backend.trap.level}）
+              </span>
+            </div>
+          ) : (
+            <p className="text-base text-gray-500">
+              バックエンドAPIに接続できないため表示できません。
+            </p>
+          )}
+        </div>
+      </Card>
+
       {/* カメラ詳細分析（罠設置支援） */}
       <Card>
         <CardHeader
           icon={Target}
           title="カメラ詳細分析（罠設置支援）"
           sub="カメラを選択して「頻度」「増加傾向」「慣れ」を確認"
+          right={<DataSourceBadge live={false} />}
         />
         <div className="p-5">
           <div className="mb-5 flex flex-wrap gap-2">
