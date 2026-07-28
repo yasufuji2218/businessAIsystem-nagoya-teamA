@@ -6,6 +6,7 @@
 - [技術スタック](#技術スタック)
 - [環境構築の手順](#環境構築の手順)
 - [実行手順](#実行手順)
+- [ゼロからのセットアップ手順（初心者向け）](#ゼロからのセットアップ手順初心者向け)
 - [やったこと](#やったこと)
 - [まだ出来ていないこと](#まだ出来ていないこと)
 - [関連PR・Issue](#関連pr・issue)
@@ -117,6 +118,143 @@ npm run test:e2e     # Playwright（結合テスト、devサーバー自動起�
 
 ---
 
+## ゼロからのセットアップ手順（初心者向け）
+
+パソコンに何も入っていない状態から、高校生でも迷わず動かせるように、順番に説明します。難しい言葉は都度かみ砕きます。
+
+### 0. まず全体像（何をこれから作るのか）
+
+このシステムは3つの「機械」が連携して動きます。
+
+```
+① バックエンド(Python) ─┬─ AIが動物を検知する頭脳
+                         │
+② フロントエンド(画面)  ─┴─ ①の結果をグラフや表で見せる
+
+③ 通知システム(Python) ── ①の結果をSlackに知らせる
+```
+
+パソコン1台の中で、この3つを**別々の「窓」(ターミナル)で同時に動かす**、というのが基本形です。文化祭で例えると、①が「裏方の作業スタッフ」、②が「お客さんが見る展示画面」、③が「館内放送」です。
+
+### 1. 必要な道具をインストールする
+
+パソコンに次の3つのソフトが入っている必要があります（入っていなければ公式サイトからダウンロード）。
+
+- **Python**（3.10以上）— バックエンドと通知システムを動かす言語
+- **Node.js**（18以上）— フロントエンド（画面）を動かす言語
+- **Git** — GitHubからコードを手元にコピーするための道具
+
+インストールできたか確認するには、ターミナル（Windowsなら「PowerShell」）を開いて、それぞれ次のコマンドを打ちます。バージョン番号が表示されればOKです。
+
+```powershell
+python --version
+node --version
+git --version
+```
+
+### 2. プロジェクトを手元にコピーする（git clone）
+
+GitHub上にある「設計図」を、自分のパソコンにダウンロードします。作業したいフォルダ（例: デスクトップ）でターミナルを開いて:
+
+```powershell
+git clone https://github.com/yasufuji2218/businessAIsystem-nagoya-teamA.git
+cd businessAIsystem-nagoya-teamA
+```
+
+これで`businessAIsystem-nagoya-teamA`というフォルダができて、中にコード一式が入ります。
+
+### 3. バックエンド用のPython環境を作る
+
+Pythonには「このプロジェクト専用の道具箱」を作る仕組み（仮想環境）があります。他のプロジェクトの道具と混ざらないようにするためです。
+
+```powershell
+python -m venv .venv
+```
+
+これでプロジェクト内に`.venv`という「道具箱」フォルダができます。次に、その道具箱を「今使う道具箱」として選びます（有効化）。
+
+```powershell
+.\.venv\Scripts\activate
+```
+
+ターミナルの左端に`(.venv)`と出れば成功です。この状態で、必要な部品（ライブラリ）を一括インストールします。
+
+```powershell
+pip install -r src\requirements.txt
+pip install python-dotenv filelock openpyxl
+```
+
+これで「AIが動画を解析する部品」「表計算ファイルを扱う部品」などが全部揃います。数分かかることがあります。
+
+### 4. フロントエンド用の環境を作る
+
+別のターミナルを開いて（Pythonの`.venv`とは別物なので混同しないよう注意）、`frontend`フォルダに入ります。
+
+```powershell
+cd businessAIsystem-nagoya-teamA\frontend
+npm install
+```
+
+`npm install`は、画面を作るのに必要な部品（React・グラフ描画ライブラリなど）を`frontend/node_modules`フォルダにダウンロードする作業です。
+
+### 5.（任意）Slack通知を使いたい場合の準備
+
+Slackに通知を送りたい場合だけ必要です。プロジェクトの一番上のフォルダ（`businessAIsystem-nagoya-teamA`直下）に、`.env`という名前のファイルを新しく作ります。中身はメモ帳で1行:
+
+```env
+SLACK_WEBHOOK_URL=ここにSlackのWebhook URLを貼る
+```
+
+⚠️ このファイルは**絶対にGitHubには上げません**（パスワードのようなものなので）。`.gitignore`という「無視リスト」に既に登録済みなので、普通にやれば誤って上がることはありません。
+
+### 6. バックエンドを起動する（ターミナル①）
+
+先ほどの`.venv`を有効化したターミナルで、プロジェクトの一番上のフォルダから:
+
+```powershell
+$env:PYTHONPATH = ".\src"
+.\.venv\Scripts\python.exe -m uvicorn backend.api:app --app-dir .\src --host 127.0.0.1 --port 8000
+```
+
+これで「AIの頭脳」が起動し、`http://127.0.0.1:8000`という住所で待機を始めます。ターミナルに`Uvicorn running on http://...`と出たら成功です。**このターミナルは閉じずにそのまま置いておきます。**
+
+### 7. フロントエンドを起動する（ターミナル②）
+
+別のターミナルで`frontend`フォルダに入り:
+
+```powershell
+npm run dev
+```
+
+`Local: http://localhost:5173/` のような表示が出ます。これが画面のアドレスです。**このターミナルも閉じずに置いておきます。**
+
+### 8. ブラウザで確認する
+
+ブラウザ（Chromeなど）を開いて、`http://localhost:5173` にアクセスします。ケモノガードのダッシュボード画面が表示されれば成功です。フッター部分に「バックエンドCSV接続中」と出ていれば、①と②がちゃんと繋がっている証拠です。
+
+### 9.（任意）動画をアップロードして試す
+
+「分析レポート」画面の上部にある「動画をアップロードして解析」から、MP4ファイルを選んでアップロードすると、AIが実際に解析し、結果がグラフに反映されます。裏側では①のバックエンドが計算しています。
+
+### 10.（任意）通知システムも動かす（ターミナル③）
+
+Slack通知まで確認したい場合、3つ目のターミナルで:
+
+```powershell
+$env:PYTHONPATH = ".\src"
+.\.venv\Scripts\python.exe -m notification.notification_launcher --reset-baseline
+```
+
+これで「今ある検知データは処理済み」として登録され、以降に追加された検知だけをSlackへ自動送信するようになります。
+
+### つまずきやすいポイント
+
+- `(.venv)`が左に出ていないのにPythonコマンドを打つ → 道具箱を選び忘れている状態。手順3の`activate`をやり直す
+- ターミナルを閉じてしまった → その「窓」で動いていた機械（バックエンドや画面）も止まる。再度そのコマンドを打ち直せば復活する
+- `npm run dev`した画面が真っ白／エラー → だいたい`npm install`をやり忘れているか、①のバックエンドを起動し忘れている
+
+---
+
 ## やったこと
 
 ### 1. フロントエンドUIモックアップの完成（[PR #11](https://github.com/yasufuji2218/businessAIsystem-nagoya-teamA/pull/11)）
@@ -165,5 +303,6 @@ npm run test:e2e     # Playwright（結合テスト、devサーバー自動起�
 ## 関連PR・Issue
 
 - [PR #11 ケモノガード フロントエンドUIモックアップ](https://github.com/yasufuji2218/businessAIsystem-nagoya-teamA/pull/11)（マージ済み）
-- [PR #19 AI慣れ度分析・総合罠設置推奨度API連携 + 動画アップロードUI](https://github.com/yasufuji2218/businessAIsystem-nagoya-teamA/pull/19)（レビュー待ち）
+- [PR #19 AI慣れ度分析・総合罠設置推奨度API連携 + 動画アップロードUI](https://github.com/yasufuji2218/businessAIsystem-nagoya-teamA/pull/19)（マージ済み）
+- [PR #21 docs: 担当範囲・作業内容まとめを追加](https://github.com/yasufuji2218/businessAIsystem-nagoya-teamA/pull/21)（レビュー待ち）
 - [Issue #5 feature/backendの.venv誤コミット](https://github.com/yasufuji2218/businessAIsystem-nagoya-teamA/issues/5)（未着手・担当者未アサイン）
