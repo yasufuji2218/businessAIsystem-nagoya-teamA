@@ -174,7 +174,19 @@ py -m venv .venv
 .\.venv\Scripts\python.exe -m uvicorn backend.api:app --app-dir .\src --host 127.0.0.1 --port 8000 --workers 1
 ```
 
-起動後は `http://127.0.0.1:8000/docs` でAPI仕様を確認できます。既存APIは `/`、`/appearance`、`/habituation`、`/trap` です。
+起動後は `http://127.0.0.1:8000/docs` でAPI仕様を確認できます。既存APIは `/`、`/detections`、`/appearance`、`/habituation`、`/trap` です。
+
+### フロントエンドとの結合起動
+
+バックエンドを `127.0.0.1:8000` で起動したまま、別のPowerShellで `frontend` を起動します。フロントエンドは `/api` 経由でバックエンドへ中継するため、通常はAPI URLを指定する必要はありません。
+
+```powershell
+cd .\frontend
+npm install
+npm run dev
+```
+
+表示されたViteのURLを開くと、`src/backend/detections.csv` の内容がダッシュボード、検知履歴、時間帯・曜日別グラフに反映されます。バックエンドが未起動の場合は、画面確認用のダミーデータを表示します。
 
 ### 動画解析ジョブAPI
 
