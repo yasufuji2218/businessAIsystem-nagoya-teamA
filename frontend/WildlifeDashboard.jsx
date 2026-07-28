@@ -305,6 +305,40 @@ function buildWeekdayData(detectionLog) {
   return bins;
 }
 
+/* 月次比較（前月比増減率と季節バースト） */
+function buildMonthlyData(detectionLog) {
+  const counts = new Map();
+  detectionLog.forEach((r) => {
+    if (!r.year || !r.month) return;
+    const key = `${r.year}-${pad2(r.month)}`;
+    counts.set(key, (counts.get(key) || 0) + 1);
+  });
+
+  const sortedKeys = Array.from(counts.keys()).sort();
+  if (sortedKeys.length === 0) return [];
+
+  const latestKey = sortedKeys[sortedKeys.length - 1];
+  const nowKey = `${new Date().getFullYear()}-${pad2(new Date().getMonth() + 1)}`;
+
+  return sortedKeys.map((key, index) => {
+    const [year, month] = key.split("-");
+    const count = counts.get(key);
+    const previousCount = index > 0 ? counts.get(sortedKeys[index - 1]) : null;
+    const delta =
+      previousCount == null || previousCount === 0
+        ? null
+        : Math.round(((count - previousCount) / previousCount) * 100);
+
+    return {
+      month: `${Number(month)}月`,
+      検知数: count,
+      delta,
+      burst: delta != null && delta >= 40,
+      partial: key === latestKey && key === nowKey,
+    };
+  });
+}
+
 function getAvailableValues(baseValues, detectionLog, key) {
   return Array.from(
     new Set([
@@ -395,16 +429,6 @@ const WEEKLY_STAY_DATA = [
   { week: "6/22週", サル: 88, イノシシ: 79, サルWarn: true },
   { week: "6/29週", サル: 96, イノシシ: 91, サルWarn: true, イノシシWarn: true },
   { week: "7/6週", サル: 104, イノシシ: 98, サルWarn: true, イノシシWarn: true },
-];
-
-/* 月次比較（前月比増減率と季節バースト） */
-const MONTHLY_DATA = [
-  { month: "2月", 検知数: 96, delta: null },
-  { month: "3月", 検知数: 118, delta: 23 },
-  { month: "4月", 検知数: 131, delta: 11 },
-  { month: "5月", 検知数: 189, delta: 44, burst: true },
-  { month: "6月", 検知数: 214, delta: 13 },
-  { month: "7月", 検知数: 42, delta: null, partial: true },
 ];
 
 /* カメラ別分析（罠設置支援）: 各指標は0〜100のリスクスコア */
@@ -966,8 +990,8 @@ function HabituationDot(props) {
 
 /** 前月比の増減率ラベル（増加=赤 / 減少=緑） */
 function DeltaLabel(props) {
-  const { x, y, width, index } = props;
-  const d = MONTHLY_DATA[index];
+  const { x, y, width, index, monthlyData } = props;
+  const d = monthlyData[index];
   if (d.delta == null) {
     return d.partial ? (
       <text
@@ -1248,6 +1272,10 @@ function AnalysisScreen({ detectionLog }) {
     () => buildWeekdayData(detectionLog),
     [detectionLog],
   );
+  const monthlyData = useMemo(
+    () => buildMonthlyData(detectionLog),
+    [detectionLog],
+  );
   const metrics = CAMERA_ANALYSIS[selectedCamera];
   const radarData = Object.entries(metrics).map(([axis, value]) => ({
     axis,
@@ -1432,11 +1460,12 @@ function AnalysisScreen({ detectionLog }) {
           icon={TrendingUp}
           title="月次比較（前月比・季節バースト）"
           sub="月間検知数と前月比増減率。オレンジは季節バースト（急増）月"
+          right={<DataSourceBadge live={detectionLog !== FALLBACK_DETECTION_LOG} />}
         />
         <div className="p-5">
           <div className="h-80">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={MONTHLY_DATA} margin={{ top: 28, right: 8, left: -16, bottom: 0 }}>
+              <BarChart data={monthlyData} margin={{ top: 28, right: 8, left: -16, bottom: 0 }}>
                 <CartesianGrid stroke={COLORS.grid} vertical={false} />
                 <XAxis
                   dataKey="month"
@@ -1456,7 +1485,7 @@ function AnalysisScreen({ detectionLog }) {
                   formatter={(v) => [`${v} 件`, "月間検知数"]}
                 />
                 <Bar dataKey="検知数" radius={[4, 4, 0, 0]} barSize={48}>
-                  {MONTHLY_DATA.map((d) => (
+                  {monthlyData.map((d) => (
                     <Cell
                       key={d.month}
                       fill={
@@ -1468,7 +1497,7 @@ function AnalysisScreen({ detectionLog }) {
                       }
                     />
                   ))}
-                  <LabelList content={<DeltaLabel />} />
+                  <LabelList content={<DeltaLabel monthlyData={monthlyData} />} />
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
