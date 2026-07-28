@@ -571,3 +571,51 @@ PowerShell 3は、状態確認が終了したら閉じて問題ありません�
 - Slack設定不備などで途中失敗すると、同じ `detections.csv` を再処理して分析CSVへ同じ期間の結果を追記する可能性があります。エラー発生時はLauncherを停止し、原因を修正してから再開してください。
 - `notification_database.xlsx` をExcelで開いたまま実行すると、WriterまたはSenderの保存に失敗する可能性があります。
 - `.env` と実行時CSV・ExcelはGitへ登録しないでください。
+
+## フロントエンドから動画解析を実行する（PowerShell 3画面の簡略化）
+
+上記「PowerShell 3：動画解析ジョブの登録」のcurlコマンドは、フロントエンドのダッシュボードからボタン操作で代替できます。
+
+⚠️ **フロントエンドから操作できるのは「PowerShell 3（動画解析ジョブの登録）」だけです。** PowerShell 1（FastAPI）とPowerShell 2（通知Launcher）は、ブラウザのJavaScriptにはローカルでサーバープロセスを起動する権限がないため、従来どおり手動でターミナルから起動する必要があります。
+
+FastAPIとフロントエンド（`npm run dev`）を上記「フロントエンドとの結合起動」の手順で起動したら、ブラウザで「分析レポート」画面を開いてください。画面上部に「動画をアップロードして解析」というカードがあります。
+
+1. 「動画ファイル（MP4）」でファイルを選択（例: `src/inputs/videos/test_video.mp4`）
+2. カメラID・実行アクション・撮影開始日時を選択（curlコマンドの `-F` オプションに対応）
+3. 「解析ジョブを登録」ボタンを押す
+4. カードの下部に `queued → running → completed`（または `failed`）の状態が自動的に更新されながら表示される
+5. `completed` になると、検知イベント件数・新規追加件数・バックエンド累計件数が表示される
+
+内部的には `POST /api/video-analysis/jobs` を呼び、完了するまで2秒間隔で `GET /api/video-analysis/jobs/<job_id>` をポーリングしているだけです（`frontend/src/api.js` の `submitVideoAnalysisJob` / `fetchVideoAnalysisJob`）。`/api`プレフィックスは`vite.config.js`のプロキシ設定により`http://127.0.0.1:8000`へ中継されます。confidence・image_size・device・gap_secondsはREADME記載の既定値（0.25 / 320 / cpu / 1.0）で固定しています。変更したい場合はこれらの値を`frontend/WildlifeDashboard.jsx`の`VideoUploadCard`内で調整してください。
+
+通知Launcher（PowerShell 2）を起動したまま上記操作を行えば、動画解析→`detections.csv`更新→通知パイプラインまで一気通貫で確認できます。
+
+## 大量の既存検知データをSlack未送信のまま既読化する方法
+
+`src/backend/detections_sample.csv` のような動作確認用の大量データ（数百〜数千件）を一度`detections.csv`に投入して通知パイプラインをテストすると、その全件が初回はPENDING扱いとなり、Slackへ大量送信されてしまいます。
+
+これを避けるため、`notification_status`を`PENDING`ではなく`SKIPPED`にして一括で「既読」扱いにする方法があります（データの削除は不要です）。プロジェクトルートで以下を実行してください。
+
+```powershell
+$env:PYTHONPATH = ".\src"
+
+.\.venv\Scripts\python.exe -c "
+from notification.notification_database_updater import update_notification_database
+from notification.notification_calculator import calculate_all_notifications
+from notification.notification_writer import write_all_notification_sheets
+
+workbook_path = update_notification_database()
+calculated = calculate_all_notifications(workbook_path=workbook_path)
+for sheet_name, rows in calculated.items():
+    for row in rows:
+        row['notification_status'] = 'SKIPPED'
+    print(sheet_name, '件数:', len(rows))
+
+write_all_notification_sheets(workbook_path=workbook_path, notification_data=calculated)
+print('SKIPPED状態で書き込み完了')
+"
+```
+
+実行後、`notification_database.xlsx`の各notificationシートは全行`SKIPPED`になります。この状態から`notification_launcher.py`を動かせば、以降**新しく追加された検知だけ**が`PENDING`となりSlackへ送信されます（内容が完全一致する行は既存のstatusを引き継ぐ仕様のため）。
+
+⚠️ **既知の制限:** この一致判定はCSVの値を文字列化して比較しているため、新しいデータの追加によってpandasの列の型推定（整数⇔小数）が変わると、既存のSKIPPED行でも文字列表現が変わり再度PENDING扱いに戻ることがあります（実際に720件超のうち約1割で発生したケースを確認済み）。動画解析などでdetections.csvを更新した直後は、Launcherを動かす前にこのスクリプトをもう一度実行し、意図せずPENDINGに戻った古い行がないか確認することを推奨します。
