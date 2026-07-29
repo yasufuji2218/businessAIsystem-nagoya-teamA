@@ -1,417 +1,152 @@
 # businessAIsystem-nagoya-teamA
-ビジネスAIシステム開発後半開発
 
-## 開発ルール
+野生動物の出没動画をYOLOで解析し、検知イベントをCSV、FastAPI、Reactダッシュボード、通知処理へつなぐデモ成果物です。
 
-<!-- TODO: ブランチ命名規則・コミットメッセージ規則などを記入してください -->
+現段階では、ローカルに配置済みの input 動画を使った分析まで確認済みです。任意の新規動画、長時間動画、本番カメラ映像、継続運用での精度や安定性は今後の検証対象です。
 
-## 0. Git/GitHubの基本用語とイメージ（初心者向け）
-Gitに初めて触れる方向けの簡単な用語解説です。ゲームのセーブ機能などに例えると分かりやすいです。
+## 現在の成果物
 
-* **Git（ギット）**: コードの変更履歴を記録する「タイムマシン」のようなシステム。
-* **GitHub（ギットハブ）**: Gitの記録をインターネット上に保存し、みんなで共有する「クラウドの保管庫」。
-* **ブランチ（Branch）**: メインのコードを壊さずに作業するための「自分専用のコピー（作業机）」。作業が終わったらメインに合流させます。
-* **コミット（Commit）**: 作業のキリが良いところで行う「セーブ（記録）」。セーブデータには「何を変えたか」のメモ（コミットメッセージ）を残します。
-* **プッシュ（Push）**: 手元のPCで行ったセーブデータを、GitHubに「アップロード」すること。
-* **プルリクエスト（PR）**: 自分の作業（ブランチ）をメインのコードに「合流させてもいいですか？」とチームに提案・レビューしてもらう機能。
+- YOLOによるMP4動画解析
+- 検出付き動画、フレーム集計CSV、生検出CSV、集計JSONの生成
+- `boar` / `monkey` の検出結果をダッシュボード用イベントCSVへ変換
+- FastAPIによる検知データ取得、動画解析ジョブ登録、ジョブ状態確認
+- React + Vite の簡易フロントエンドダッシュボード
+- 検知履歴、時間帯別・曜日別集計、リアルタイム速報の表示
+- `detections.csv` 更新を起点にした日次・週次・月次・年次集計と通知処理
 
-**⚠️ エラーが起きたときのSOSルール**
-Gitの操作中によくわからない英語のエラーが出たり、手順通りに進まなくなった場合は、**絶対に勘でコマンドを実行しないでください。**（誤ってチームのコードを消してしまう可能性があります）
-エラーが出たら操作を止め、画面のスクリーンショットを撮ってすぐにチームメンバーに相談してください。
+## 現段階の確認結果
 
-**💡 豆知識：もし黒い画面で文字が入力できなくなったら？（vimが開いた場合）**
-コマンド入力中、突然画面が切り替わって操作を受け付けなくなった場合は、`vim` というテキストエディタが起動しています。慌てずに以下のキーボード操作を順番に押すと、元の画面に脱出できます。
-1. `Esc` キーを押す
-2. 半角で `:q!` と入力する（画面の一番下に入力されます）
-3. `Enter` キーを押す
+確認に使った入力動画はローカルの次のファイルです。
 
-### 1.概要
-
-チーム開発を円滑に進めるためのブランチ命名規則とコミットメッセージの規則を設定する。
-
-前提として１つのタスクに対して１つのブランチを作成するものとする。
-
-### 2.ブランチの命名規則
-
-| プレフィックス |               意味・用途               |              例              |
-|:--------------:|:--------------------------------------:|:----------------------------:|
-| feature/       | 新機能の開発                           | feature/news-scoring-logic   |
-| fix/           | バグの修正                             | fix/db-connection-error      |
-| docs/          | ドキュメント（README等）の更新         | docs/update-roadmap          |
-| refactor/      | リファクタリング（機能を変えない整理） | refactor/api-response-format |
-| chore/         | ライブラリの導入や雑務的な変更         | chore/add-pydantic-v2        |
-
-ブランチ名は上記の表に基づいて命名するものとする。以下にブランチ名の例を複数挙げる。
-
-* 例１.タイムラインを作成するタスクの場合：feature/make-timeline
-
-* 例２.タイムラインにバグが発生したため、改善するコードを作成する場合：fix/timeline-connection-error
-
-## 3.具体的な手順
-
-**①：新しいブランチを作る**
-まず、手元のPCで `main` から新しい枝を作ります。
-
-最新のmainにいることを確認
-
-```bash
-git checkout main
+```text
+src/inputs/videos/test_video.mp4
 ```
 
-```bash
-git pull origin main
-```
+確認時の主な結果は次のとおりです。
 
-新しいブランチを作って移動
+| 項目 | 値 |
+|---|---:|
+| 処理フレーム数 | 622 |
+| 動画時間 | 約25.943秒 |
+| 生検出数 | 63件 |
+| ダッシュボード用イベント数 | 11件 |
+| 生検出の平均信頼度 | 0.3810 |
+| イベント平均信頼度 | 0.3622 |
+| 検出ありフレーム率 | 10.13% |
 
-```bash
-git checkout -b feature/fix-logo
-```
+学習済みモデルの検証指標は `src/outputs/training/animal_demo/results.csv` から確認しています。
 
-**②コードを書いて保存**
+| 指標 | 値 |
+|---|---:|
+| Precision | 0.8831 |
+| Recall | 0.7699 |
+| F1推定値 | 0.8226 |
+| mAP50 | 0.8535 |
+| mAP50-95 | 0.6060 |
 
-```bash
-git add .
-```
+`confidence` は各検出に対するYOLOの確信度です。モデル全体の評価を見る場合は、`Precision`、`Recall`、`mAP50`、`mAP50-95` を参照してください。
 
-```bash
-git commit -m "Add transparent logo and update README"
-```
-
-**③自分のブランチをGitHubへアップロード**
-
-```bash
-git push origin feature/fix-logo
-```
-
-**④プルリクエストを出す**
-
-GitHubの画面に行くと「Compare & pull request」というボタンが出ています。
-これを押して、「この変更を main に合流させてもいいですか？」というリクエストをチームに送ります。
-
-![Compare & pull request](images/プルリクエスト.png)
-
-
-### 4.コミット時のコメント規則
-
-```bash
-git commit -m "コメント"
-```
-コミット時のコメントとは、上記の`"コメント"`の部分のことである。
-コメント形式には、「何を変えたか」を一目で伝えるため、Conventional Commits という世界標準の書き方を簡略化したものを採用する。
-
-```bash
-タイプ：変更内容
-```
-**タイプ一覧**
-
-- **feat**: 新機能（FastAPIの新しいエンドポイント追加など）
-- **fix**: バグ修正
-- **docs**: ドキュメントのみの変更
-- **style**: コードの動作に影響しない修正（インデント、セミコロン等）
-- **refactor**: 機能追加もバグ修正も行わないコード変更
-- **chore**: ビルドプロセスや補助ツールの変更
-
-### 5. 日常開発でよく使う基本コマンド集
-開発中に「現在の状態を確認したい」「過去の履歴を見たい」というときに使う重要なコマンドです。
-
-## ① 状態・変更を確認する
-```bash
-# 現在どのブランチにいるか、どのファイルが変更されているかを確認する（最重要）
-git status
-
-# 具体的にどの行を書き換えたか（差分）を確認する
-git diff
-```
-## ② 履歴を確認する
-```bash
-# これまでのコミット履歴（誰が・いつ・どんなメッセージでセーブしたか）を一覧表示する
-git log
-
-# 履歴を1行でコンパクトに表示する
-git log --oneline
-```
-## ③ ブランチを管理する
-```bash
-# ローカルにあるブランチの一覧を表示する（現在いるブランチには * がつきます）
-git branch
-
-# リモート（GitHub）にあるブランチも含めてすべて表示する
-git branch -a
-```
-## ④ リモートの最新状態を取り込む（git pull）
-他のメンバーが main や共有ブランチを更新したとき、その最新コードを手元のPCに取り込むためのコマンドです。
-
-```bash
-# リモート（origin）の main ブランチの最新状態を、今いるローカルブランチに合流させる
-git pull origin main
-```
-
-6. ディレクトリ構成（ファイル配置ルール）
-本リポジトリでは、以下のディレクトリ構成に従ってファイルを配置してください。
-（※各ディレクトリの役割以外の場所にファイルを勝手に作成しないこと）
+## ディレクトリ構成
 
 ```text
 project-root/
-├── .github/       # GitHub Actionsなどの設定ファイル
-├── docs/          # 設計書、議事録、マニュアル等のドキュメント
-├──imgaes/         # 画像ファイル(プログラムに使うものは"src/"に入れる)
-├── src/           # アプリケーションのソースコード本体
-├── tests/         # テストコード
-├── .gitignore     # Gitの管理から除外するファイルの設定
-└── README.md      # このファイル
+├── frontend/                       # React + Vite フロントエンド
+├── src/
+│   ├── backend/                    # FastAPI、分析API、集計CSV出力
+│   ├── inputs/                     # ローカル入力動画など。現状はGit管理対象外
+│   ├── notification/               # 通知用Excel更新、Slack通知、Launcher
+│   ├── outputs/
+│   │   ├── training/animal_demo/   # 学習済みYOLOモデル。best.ptのみGit管理
+│   │   └── video_analysis/         # 動画解析結果。Git管理対象外
+│   └── scripts/                    # 動画解析、検出結果マージ、学習補助
+├── tests/                          # Python側テスト
+├── docs/                           # 担当範囲、設計メモ
+└── README.md
 ```
 
-## YOLO動画解析バックエンド
+## セットアップ
 
-### セットアップと起動
+Anaconda環境を使う場合の例です。
 
-プロジェクトルートで仮想環境を作成し、`src/requirements.txt` をインストールします。
+```powershell
+conda activate yolo-backend
+python -m pip install -r .\src\requirements.txt
+```
+
+OpenMP関連の競合でバックエンドが落ちる場合があるため、YOLOを動かすPowerShellでは次を設定してください。
+
+```powershell
+$env:KMP_DUPLICATE_LIB_OK = "TRUE"
+$env:OMP_NUM_THREADS = "1"
+```
+
+通常のvenvで実行する場合は次の形でも動かせます。
 
 ```powershell
 py -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r .\src\requirements.txt
-.\.venv\Scripts\python.exe -m uvicorn backend.api:app --app-dir .\src --host 127.0.0.1 --port 8000 --workers 1
 ```
 
-起動後は `http://127.0.0.1:8000/docs` でAPI仕様を確認できます。既存APIは `/`、`/detections`、`/appearance`、`/habituation`、`/trap` です。
-
-### フロントエンドとの結合起動
-
-バックエンドを `127.0.0.1:8000` で起動したまま、別のPowerShellで `frontend` を起動します。フロントエンドは `/api` 経由でバックエンドへ中継するため、通常はAPI URLを指定する必要はありません。
+フロントエンドにはNode.jsとnpmが必要です。
 
 ```powershell
 cd .\frontend
 npm install
+```
+
+## 起動方法
+
+PowerShellを2つ開いて実行します。
+
+1つ目でバックエンドを起動します。
+
+```powershell
+conda activate yolo-backend
+$env:KMP_DUPLICATE_LIB_OK = "TRUE"
+$env:OMP_NUM_THREADS = "1"
+python -m uvicorn backend.api:app --app-dir .\src --host 127.0.0.1 --port 8000 --workers 1
+```
+
+2つ目でフロントエンドを起動します。
+
+```powershell
+cd .\frontend
 npm run dev
 ```
 
-表示されたViteのURLを開くと、`src/backend/detections.csv` の内容がダッシュボード、検知履歴、時間帯・曜日別グラフに反映されます。バックエンドが未起動の場合は、画面確認用のダミーデータを表示します。
+表示されたViteのURLをブラウザで開きます。通常は次のURLです。
 
-### 動画解析ジョブAPI
-
-MP4、撮影開始日時、カメラIDなどをmultipart formで送信します。応答はHTTP 202で、解析ジョブIDと状態確認URLを返します。
-
-```powershell
-curl.exe -X POST "http://127.0.0.1:8000/video-analysis/jobs" `
-  -F "video=@src/inputs/videos/test_video.mp4;type=video/mp4" `
-  -F "start_timestamp=2026-07-21 10:00:00" `
-  -F "device_id=CAM001" `
-  -F "action=なし" `
-  -F "confidence=0.25" `
-  -F "image_size=320" `
-  -F "device=cpu" `
-  -F "gap_seconds=1.0"
+```text
+http://localhost:5173
 ```
 
-返されたIDで `queued`、`running`、`completed`、`failed` の状態を確認します。
+バックエンドAPI仕様は次で確認できます。
+
+```text
+http://127.0.0.1:8000/docs
+```
+
+## デモ実行
+
+フロントエンドの分析レポート画面からMP4をアップロードすると、動画解析ジョブを登録できます。現段階で確認済みの入力は次の動画です。
+
+```text
+src/inputs/videos/test_video.mp4
+```
+
+コマンドで実行する場合は、バックエンド起動中にプロジェクトルートで次を実行します。
+
+```powershell
+curl.exe -X POST "http://127.0.0.1:8000/video-analysis/jobs" -F "video=@src/inputs/videos/test_video.mp4;type=video/mp4" -F "start_timestamp=2026-07-28 10:00:00" -F "device_id=CAM001" -F "action=なし" -F "confidence=0.25" -F "image_size=320" -F "device=cpu" -F "gap_seconds=1.0"
+```
+
+返ってきた `job_id` で状態を確認します。
 
 ```powershell
 curl.exe "http://127.0.0.1:8000/video-analysis/jobs/<job_id>"
 ```
 
-完了すると、検出付き動画・フレーム集計CSV・追跡検出CSV・集計JSONを `src/outputs/video_analysis/jobs/<job_id>/` に保存します。`boar` と `monkey` の検出は `track_id` と連続検出区間ごとにイベント化し、既存6列の `src/backend/detections.csv` へ安全に追記します。
-
-### CLIとPython関数
-
-動画解析だけをCLIで実行できます。
-
-```powershell
-.\.venv\Scripts\python.exe .\src\scripts\analyze_video.py `
-  --source .\src\inputs\videos\test_video.mp4 `
-  --model .\src\outputs\training\animal_demo\weights\best.pt `
-  --conf 0.25 --imgsz 320 --device cpu
-```
-
-解析CSVをバックエンドイベントへ変換・追記する場合は次を実行します。
-
-```powershell
-.\.venv\Scripts\python.exe .\src\scripts\merge_detections.py `
-  --source .\src\outputs\video_analysis\test_video\detections.csv `
-  --start-timestamp "2026-07-21 10:00:00" `
-  --device-id CAM001 --action なし --gap-seconds 1.0
-```
-
-Pythonからは `scripts.analyze_video.analyze_video(...)` と `scripts.merge_detections.merge_detections(...)` を呼び出せます。`src` をPythonのモジュール検索パスに含めてください。
-
-### 制限事項
-
-- ジョブ状態はメモリ上に保持されるため、API再起動後は取得できません。複数worker間でも共有されないため、現在は必ず `--workers 1` で起動してください。
-- 同一プロセス内のYOLO解析はメモリ競合を避けるため1件ずつ実行します。CPU実行では長い動画の処理に時間がかかります。
-- アップロード上限は2 GiBです。アップロード動画と解析成果物は自動削除されません。運用時は認証、容量監視、保存期間管理を別途追加してください。
-- 既定モデルは `src/outputs/training/animal_demo/weights/best.pt` です。イベント変換対象はクラス名が `boar` または `monkey` の検出に限られ、その他のクラスは解析成果物には残りますがバックエンドCSVへは追加されません。
-- `track_id` は1本の動画内でのみ有効です。動画をまたぐ同一個体判定は行いません。
-- CLIの既定出力先は入力動画のstem名で決まるため、同名動画を再解析すると同じ出力先を使用します。保存が必要な場合は `--output-dir` で別ディレクトリを指定してください。
-
-### Git管理と実行時CSV
-
-- バックエンド実行に必要な学習済みモデルは `src/outputs/training/animal_demo/weights/best.pt` だけをGit管理します。
-- 入力動画、動画解析結果、学習グラフ、`last.pt`、`src/yolo11n.pt`、バックアップCSVはローカル生成物としてGit管理しません。
-- `src/backend/detections.csv` と `*_analysis.csv` は実行時データのためGit管理しません。存在しない場合は、初回読み込みまたは保存時に必要なヘッダー付きで自動生成されます。
-- 動作確認用データは `src/backend/detections_sample.csv` に分離し、実運用CSVへ自動混入しません。
-
-## 通知システムを含む統合実行手順（PowerShell 3画面）
-
-この手順では、FastAPI、通知Launcher、動画解析ジョブ投入を別々のPowerShellで実行します。
-各処理のログを個別に確認できるため、結合動作の確認時はこちらを使用してください。
-
-### 事前準備
-
-プロジェクトルートで必要ライブラリをインストールします。
-
-```powershell
-.\.venv\Scripts\python.exe -m pip install -r .\src\requirements.txt
-.\.venv\Scripts\python.exe -m pip install python-dotenv filelock openpyxl
-```
-
-プロジェクトルート直下に `.env` を配置します。
-
-```text
-project-root/
-├── .env
-├── .gitignore
-├── .venv/
-└── src/
-```
-
-`.env` にはSlack Incoming Webhook URLを設定します。
-
-```env
-SLACK_WEBHOOK_URL=https://hooks.slack.com/services/XXX/XXX/XXX
-```
-
-`.env` は秘密情報を含むため、Gitへ登録しません。`.gitignore` に次を追加してください。
-
-```gitignore
-.env
-```
-
-実行中は、以下のCSVとExcelをExcel・エディター・プレビュー機能で開かないでください。Windowsのファイルロックにより、CSVまたはExcelの置換保存に失敗することがあります。
-
-```text
-src/backend/daily_analysis.csv
-src/backend/weekly_analysis.csv
-src/backend/monthly_analysis.csv
-src/backend/yearly_analysis.csv
-src/notification/result/notification_database.xlsx
-```
-
-### 実行順序
-
-```text
-PowerShell 1：FastAPIを起動
-        ↓
-PowerShell 2：notification_launcher.pyを起動してCSV更新待機
-        ↓
-PowerShell 3：curlで動画解析ジョブを登録
-        ↓
-FastAPIが動画解析を実行
-        ↓
-src/backend/detections.csvを追加・更新
-        ↓
-Launcherが更新を検知
-        ↓
-daily / weekly / monthly / yearly バッチを実行
-        ↓
-notification_database.xlsxのrawシートを更新
-        ↓
-通知用データを計算
-        ↓
-notificationシートへ書き込み
-        ↓
-Slackへ通知
-```
-
-### PowerShell 1：FastAPIの起動
-
-プロジェクトルートで実行します。
-
-```powershell
-$env:PYTHONPATH = ".\src"
-
-.\.venv\Scripts\python.exe -m uvicorn backend.api:app `
-  --app-dir .\src `
-  --host 127.0.0.1 `
-  --port 8000 `
-  --workers 1
-```
-
-次の表示が出れば起動成功です。
-
-```text
-Uvicorn running on http://127.0.0.1:8000
-```
-
-このPowerShellは閉じず、そのまま待機させます。動画解析の進行状況もこの画面へ表示されます。
-
-### PowerShell 2：通知Launcherの起動
-
-別のPowerShellを開き、プロジェクトルートへ移動します。
-
-```powershell
-cd C:\Users\matsukiymato\businessAIsystem-nagoya-teamA
-$env:PYTHONPATH = ".\src"
-
-.\.venv\Scripts\python.exe `
-  -m notification.notification_launcher `
-  --reset-baseline
-```
-
-次の表示が出れば正常な待機状態です。
-
-```text
-実行環境の確認が完了しました。
-現在のdetections.csvを監視開始時点の基準として登録しました。
-動画解析ジョブによる次回のCSV追加・更新を待機します。
-```
-
-`--reset-baseline` は、Launcher起動時点の既存 `src/backend/detections.csv` を処理済みの基準として登録し、その後の追加・更新だけを検知するための指定です。
-
-このPowerShellも閉じず、そのまま待機させます。
-
-### PowerShell 3：動画解析ジョブの登録
-
-3つ目のPowerShellを開き、プロジェクトルートへ移動します。
-
-```powershell
-cd C:\Users\matsukiymato\businessAIsystem-nagoya-teamA
-```
-
-次のコマンドで動画解析ジョブを登録します。
-
-```powershell
-curl.exe -X POST "http://127.0.0.1:8000/video-analysis/jobs" `
-  -F "video=@src/inputs/videos/test_video.mp4;type=video/mp4" `
-  -F "start_timestamp=2026-07-21 10:00:00" `
-  -F "device_id=CAM001" `
-  -F "action=なし" `
-  -F "confidence=0.25" `
-  -F "image_size=320" `
-  -F "device=cpu" `
-  -F "gap_seconds=1.0"
-```
-
-正常に受け付けられると、HTTP 202とジョブIDが返ります。
-
-```json
-{
-  "job_id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-  "status": "queued",
-  "status_url": "/video-analysis/jobs/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-}
-```
-
-`queued` は解析完了ではなく、解析ジョブの受付が完了した状態です。
-
-### 動画解析ジョブの状態確認
-
-PowerShell 3で、返された `job_id` を指定して確認します。
-
-```powershell
-curl.exe "http://127.0.0.1:8000/video-analysis/jobs/<job_id>"
-```
-
-主な状態は次のとおりです。
+状態は主に次の4つです。
 
 ```text
 queued     ジョブ受付済み
@@ -420,202 +155,187 @@ completed  正常完了
 failed     解析失敗
 ```
 
-正常完了時は、`status` に加えて `event_count`、`added_event_count`、`backend_total_count` も確認してください。
+`completed` になると、ダッシュボード用の `src/backend/detections.csv` にイベントが追記され、フロントエンドの検知履歴やグラフへ反映されます。
 
-### 各PowerShellで確認するログ
+## 生成されるファイル
 
-#### PowerShell 1
-
-FastAPIとYOLO動画解析のログを確認します。
+動画解析ジョブごとの成果物は次へ生成されます。
 
 ```text
-POST /video-analysis/jobs HTTP/1.1 202 Accepted
-100/622フレーム処理済み
-200/622フレーム処理済み
-...
-動画解析が完了しました
+src/outputs/video_analysis/jobs/<job_id>/
+├── annotated.mp4       # 検出枠付き動画
+├── detections.csv      # フレーム単位の生検出結果
+├── frame_summary.csv   # フレーム単位の集計
+└── summary.json        # 解析条件と集計サマリー
 ```
 
-#### PowerShell 2
-
-通知システム全体のログを確認します。
-
-```text
-detections.csvの新規作成・更新を検知しました。
-バックエンドバッチを実行します: daily
-dailyバッチが完了しました。
-バックエンドバッチを実行します: weekly
-weeklyバッチが完了しました。
-バックエンドバッチを実行します: monthly
-monthlyバッチが完了しました。
-バックエンドバッチを実行します: yearly
-yearlyバッチが完了しました。
-日次・週次・月次・年次CSVの更新を確認しました。
-Excelのrawシートを更新します。
-通知用データを計算します。
-notificationシートを更新します。
-Slack通知を開始します。
-```
-
-Slack送信成功時は、次のように表示されます。
-
-```text
-Slack通知成功: realtime_notification 行2
-Slack通知処理が完了しました
-```
-
-#### PowerShell 3
-
-ジョブ登録結果とジョブ状態を確認します。
-
-### 更新されるファイル
-
-バックエンド側：
+ダッシュボード用イベントCSVは次です。
 
 ```text
 src/backend/detections.csv
+```
+
+`detections.csv` は存在しない場合、初回読み込みまたは解析結果保存時にヘッダー付きで自動生成されます。動画解析だけで直接生成されるのは主に `detections.csv` と動画解析成果物です。
+
+日次・週次・月次・年次の分析CSVは、`backend.batch` または通知Launcherを動かしたときに生成・更新されます。
+
+```text
 src/backend/daily_analysis.csv
 src/backend/weekly_analysis.csv
 src/backend/monthly_analysis.csv
 src/backend/yearly_analysis.csv
 ```
 
-通知システム側：
+手動で集計する場合は次のように実行します。
 
-```text
-src/notification/result/notification_database.xlsx
+```powershell
+$env:PYTHONPATH = ".\src"
+python -m backend.batch daily
+python -m backend.batch weekly
+python -m backend.batch monthly
+python -m backend.batch yearly
 ```
 
-更新対象シート：
+## 通知システム
 
-```text
-realtime_sheet
-daily_sheet
-weekly_sheet
-monthly_sheet
-yearly_sheet
-realtime_notification
-daily_notification
-weekly_notification
-monthly_notification
-yearly_notification
+通知まで含めて確認する場合は、バックエンドとは別のPowerShellでLauncherを起動します。
+
+```powershell
+conda activate yolo-backend
+$env:PYTHONPATH = ".\src"
+python -m notification.notification_launcher --reset-baseline
 ```
 
-Slack送信結果は各notificationシートの `notification_status` に保存されます。
+Launcherは `src/backend/detections.csv` の更新を監視し、更新を検知すると次の処理を行います。
 
 ```text
-PENDING  送信待ち
-SUCCESS  送信成功
-FAILED   送信失敗
-SKIPPED  送信対象外
+detections.csv更新
+  -> daily / weekly / monthly / yearly 集計
+  -> notification_database.xlsx のrawシート更新
+  -> 通知用データ計算
+  -> Slack通知
 ```
 
-### Slack通知が届かない場合
-
-`.env` が読み込まれていても、Webhook URLがIncoming Webhook形式でなければ送信されません。
-
-正しい形式：
+Slack通知を使う場合は、プロジェクトルート直下の `.env` にIncoming Webhook URLを設定します。
 
 ```env
 SLACK_WEBHOOK_URL=https://hooks.slack.com/services/XXX/XXX/XXX
 ```
 
-URL全体を表示せずに設定状態だけ確認する場合：
+`.env` は秘密情報のためGit管理しません。
 
-```powershell
-Remove-Item Env:SLACK_WEBHOOK_URL -ErrorAction SilentlyContinue
+## API一覧
 
-.\.venv\Scripts\python.exe -c `
-"from dotenv import load_dotenv; import os; load_dotenv('.env'); u=os.getenv('SLACK_WEBHOOK_URL','').strip(); print('設定あり:', bool(u)); print('Incoming Webhook形式:', u.startswith('https://hooks.slack.com/services/') or u.startswith('https://hooks.slack-gov.com/services/'))"
-```
+| メソッド | パス | 内容 |
+|---|---|---|
+| GET | `/` | API疎通確認 |
+| GET | `/detections` | ダッシュボード用検知イベント取得 |
+| GET | `/appearance` | 時間帯別の出没ピーク取得 |
+| GET | `/habituation` | 慣れ度スコア取得 |
+| GET | `/trap` | 罠設置推奨スコア取得 |
+| POST | `/video-analysis/jobs` | MP4動画解析ジョブ登録 |
+| GET | `/video-analysis/jobs/{job_id}` | 動画解析ジョブ状態確認 |
 
-期待結果：
+## Git管理方針
 
-```text
-設定あり: True
-Incoming Webhook形式: True
-```
+次のファイルは実行時生成物または容量が大きいファイルのため、Git管理しません。
 
-通知用シートまで作成済みでSlack送信だけ失敗した場合は、動画解析からやり直さずSenderだけ実行できます。
+- `src/inputs/`
+- `src/inputs/video_jobs/`
+- `*.mp4`
+- `src/outputs/video_analysis/`
+- `src/backend/detections.csv`
+- `src/backend/*_analysis.csv`
+- `src/backend/*_backup.csv`
+- `frontend/dist/`
+- `node_modules/`
+- `.env`
 
-```powershell
-$env:PYTHONPATH = ".\src"
-Remove-Item Env:SLACK_WEBHOOK_URL -ErrorAction SilentlyContinue
-
-.\.venv\Scripts\python.exe `
-  -m notification.notification_sender `
-  .\src\notification\result\notification_database.xlsx
-```
-
-このコマンドは、`notification_status` が `PENDING` の行をすべて送信します。
-
-### 終了方法
-
-PowerShell 2のLauncherを停止します。
+学習済みモデルは、バックエンド実行に必要な次のファイルだけをGit管理します。
 
 ```text
-Ctrl + C
+src/outputs/training/animal_demo/weights/best.pt
 ```
 
-PowerShell 1のFastAPIを停止します。
+現時点では `src/inputs/` 配下に公開すべき軽量ファイルがなく、動画ファイルだけが確認対象のため、inputディレクトリ全体をGit管理対象外にしています。
 
-```text
-Ctrl + C
+将来、動画以外の軽量な入力定義、サンプルメタデータ、設定ファイルを公開する必要が出た場合は、`.gitignore` の `src/inputs/` を外し、動画とジョブ投入ファイルだけを除外する形へ変更してください。例は次のとおりです。
+
+```gitignore
+src/inputs/videos/
+src/inputs/video_jobs/
+src/inputs/**/*.mp4
+src/inputs/**/*.mov
+src/inputs/**/*.avi
 ```
 
-PowerShell 3は、状態確認が終了したら閉じて問題ありません。
+この変更を行う場合も、データセット、学習済みモデル、動画、既存CSVを削除せず、公開対象だけを明示してGitへ追加してください。
 
-### 注意事項
+## 既知の制限
 
-- LauncherはSlack送信まで正常完了した後に、対象の `detections.csv` を処理済みとして記録します。
-- Slack設定不備などで途中失敗すると、同じ `detections.csv` を再処理して分析CSVへ同じ期間の結果を追記する可能性があります。エラー発生時はLauncherを停止し、原因を修正してから再開してください。
-- `notification_database.xlsx` をExcelで開いたまま実行すると、WriterまたはSenderの保存に失敗する可能性があります。
-- `.env` と実行時CSV・ExcelはGitへ登録しないでください。
+- 現段階で実際に分析確認できているのは、ローカルにある `src/inputs/videos/test_video.mp4` です。
+- 任意の新規動画や本番映像に対する検出精度、処理時間、安定性は未検証です。
+- ジョブ状態はメモリ上に保持されるため、バックエンドを再起動すると過去の `job_id` は取得できません。
+- 複数worker間でジョブ状態を共有しないため、FastAPIは `--workers 1` で起動してください。
+- アップロード動画と解析成果物は自動削除されません。
+- 現在のイベント変換対象は `boar` と `monkey` です。
+- フロントエンドの警戒レベルや一部表示はデモ向けの簡易ロジックです。
+- Anaconda環境ではOpenMP競合により落ちる場合があるため、必要に応じて `KMP_DUPLICATE_LIB_OK` と `OMP_NUM_THREADS` を設定してください。
 
-## フロントエンドから動画解析を実行する（PowerShell 3画面の簡略化）
+## テスト
 
-上記「PowerShell 3：動画解析ジョブの登録」のcurlコマンドは、フロントエンドのダッシュボードからボタン操作で代替できます。
-
-⚠️ **フロントエンドから操作できるのは「PowerShell 3（動画解析ジョブの登録）」だけです。** PowerShell 1（FastAPI）とPowerShell 2（通知Launcher）は、ブラウザのJavaScriptにはローカルでサーバープロセスを起動する権限がないため、従来どおり手動でターミナルから起動する必要があります。
-
-FastAPIとフロントエンド（`npm run dev`）を上記「フロントエンドとの結合起動」の手順で起動したら、ブラウザで「分析レポート」画面を開いてください。画面上部に「動画をアップロードして解析」というカードがあります。
-
-1. 「動画ファイル（MP4）」でファイルを選択（例: `src/inputs/videos/test_video.mp4`）
-2. カメラID・実行アクション・撮影開始日時を選択（curlコマンドの `-F` オプションに対応）
-3. 「解析ジョブを登録」ボタンを押す
-4. カードの下部に `queued → running → completed`（または `failed`）の状態が自動的に更新されながら表示される
-5. `completed` になると、検知イベント件数・新規追加件数・バックエンド累計件数が表示される
-
-内部的には `POST /api/video-analysis/jobs` を呼び、完了するまで2秒間隔で `GET /api/video-analysis/jobs/<job_id>` をポーリングしているだけです（`frontend/src/api.js` の `submitVideoAnalysisJob` / `fetchVideoAnalysisJob`）。`/api`プレフィックスは`vite.config.js`のプロキシ設定により`http://127.0.0.1:8000`へ中継されます。confidence・image_size・device・gap_secondsはREADME記載の既定値（0.25 / 320 / cpu / 1.0）で固定しています。変更したい場合はこれらの値を`frontend/WildlifeDashboard.jsx`の`VideoUploadCard`内で調整してください。
-
-通知Launcher（PowerShell 2）を起動したまま上記操作を行えば、動画解析→`detections.csv`更新→通知パイプラインまで一気通貫で確認できます。
-
-## 大量の既存検知データをSlack未送信のまま既読化する方法
-
-`src/backend/detections_sample.csv` のような動作確認用の大量データ（数百〜数千件）を一度`detections.csv`に投入して通知パイプラインをテストすると、その全件が初回はPENDING扱いとなり、Slackへ大量送信されてしまいます。
-
-これを避けるため、`notification_status`を`PENDING`ではなく`SKIPPED`にして一括で「既読」扱いにする方法があります（データの削除は不要です）。プロジェクトルートで以下を実行してください。
+バックエンド側のテストは次で実行します。
 
 ```powershell
-$env:PYTHONPATH = ".\src"
-
-.\.venv\Scripts\python.exe -c "
-from notification.notification_database_updater import update_notification_database
-from notification.notification_calculator import calculate_all_notifications
-from notification.notification_writer import write_all_notification_sheets
-
-workbook_path = update_notification_database()
-calculated = calculate_all_notifications(workbook_path=workbook_path)
-for sheet_name, rows in calculated.items():
-    for row in rows:
-        row['notification_status'] = 'SKIPPED'
-    print(sheet_name, '件数:', len(rows))
-
-write_all_notification_sheets(workbook_path=workbook_path, notification_data=calculated)
-print('SKIPPED状態で書き込み完了')
-"
+conda activate yolo-backend
+python -m pytest tests
 ```
 
-実行後、`notification_database.xlsx`の各notificationシートは全行`SKIPPED`になります。この状態から`notification_launcher.py`を動かせば、以降**新しく追加された検知だけ**が`PENDING`となりSlackへ送信されます（内容が完全一致する行は既存のstatusを引き継ぐ仕様のため）。
+フロントエンドのビルド確認は次で実行します。
 
-⚠️ **既知の制限:** この一致判定はCSVの値を文字列化して比較しているため、新しいデータの追加によってpandasの列の型推定（整数⇔小数）が変わると、既存のSKIPPED行でも文字列表現が変わり再度PENDING扱いに戻ることがあります（実際に720件超のうち約1割で発生したケースを確認済み）。動画解析などでdetections.csvを更新した直後は、Launcherを動かす前にこのスクリプトをもう一度実行し、意図せずPENDINGに戻った古い行がないか確認することを推奨します。
+```powershell
+cd .\frontend
+npm run build
+```
+
+## 個人が行ったこと
+
+安藤担当領域
+
+### 1. YOLOによる動画解析機能
+
+YOLOを使って入力動画から野生動物を検出し、解析結果をファイルとして出力する部分を整備しました。
+
+- 学習済みYOLOモデル `best.pt` を使ったMP4動画解析
+- 検出枠付き動画 `annotated.mp4` の生成
+- フレーム単位の生検出CSV `detections.csv` の生成
+- フレーム集計CSV `frame_summary.csv` と解析サマリー `summary.json` の生成
+- 検出信頼度 `confidence`、検出数、検出ありフレーム率などの確認
+
+現段階では、ローカルにある `src/inputs/videos/test_video.mp4` を用いた解析まで確認済みです。
+
+### 2. YOLO解析結果とデータ分析処理の結合
+
+YOLOのフレーム単位の検出結果を、既存のデータ分析で扱えるイベント形式へ変換する処理を結合しました。
+
+- YOLOの生検出結果を `timestamp`、`device_id`、`animal_type`、`confidence`、`action_triggered`、`stay_duration` の6列へ変換
+- `boar` / `monkey` の検出を `イノシシ` / `サル` のイベントとして扱う処理
+- `track_id` と連続検出区間をもとに、フレーム単位の検出を検知イベントへ集約
+- `src/backend/detections.csv` への追記
+- `daily_analysis.csv`、`weekly_analysis.csv`、`monthly_analysis.csv`、`yearly_analysis.csv` へつながる集計処理との接続確認
+
+これにより、動画解析の結果を既存の分析・通知パイプラインで扱える形にしました。
+
+### 3. バックエンドとフロントエンドの結合
+
+FastAPIバックエンドとReactフロントエンドをつなぎ、画面上で検知データを確認できるようにしました。
+
+- FastAPIに動画解析ジョブAPIを追加
+- `/video-analysis/jobs` で動画解析ジョブを登録
+- `/video-analysis/jobs/{job_id}` で解析状態と結果を確認
+- `/detections` でダッシュボード用の検知履歴を取得
+- Viteの `/api` プロキシ経由でフロントエンドからバックエンドへ接続
+- フロントエンド上で検知履歴、速報、集計グラフを表示
+- フロントエンドから動画解析を実行できる導線を追加
+
+現在はデモ実行を優先した構成のため、ジョブ状態の永続化、本番用認証、アップロードファイルの保存期間管理などは今後の課題です。
